@@ -393,7 +393,16 @@ export function applyAttack(state: BattleState, id: Id, to: Cell, rng: () => num
 
 /** Черты «при гибели» для существа, уже убранного с арены (атака, вспышка и т.п.). */
 function runDeathTraits(state: BattleState, victim: Creature, events: BattleEvent[]): void {
-  if (victim.kind === 'weaver') {
+  if (victim.kind === 'bellringer') {
+    // Похоронный звон: существа противоположной стороны в соседних клетках
+    // оглушены — в этот ход больше не действуют. Черта переживает смену стороны.
+    for (const c of state.creatures) {
+      if (c.side === victim.side || c.acted) continue;
+      if (Math.abs(c.cell.x - victim.cell.x) > 1 || Math.abs(c.cell.y - victim.cell.y) > 1) continue;
+      c.acted = true;
+      events.push({ t: 'stunned', id: c.id, at: { ...c.cell } });
+    }
+  } else if (victim.kind === 'weaver') {
     const cell = firstFreeNeighbor(state, victim.cell);
     if (cell) {
       state.cocoons.push({ cell, expiresOnPlayerTurn: state.playerTurnNumber + 3 });

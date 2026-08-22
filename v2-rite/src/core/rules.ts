@@ -26,9 +26,13 @@ function rangeFor(state: BattleState, creature: Creature, mode: 'move' | 'attack
   return rank === 'square' ? 3 : 5;
 }
 
-/** Панцирь (7.3): атака существа-треугольника по нему нелегальна. Черта сохраняется при смене стороны. */
+/**
+ * Панцирь (7.3): атака существа-треугольника по нему нелегальна. Черта
+ * сохраняется при смене стороны. Исключение — Кающийся: его атака пробивает
+ * Панциря, несмотря на ранг.
+ */
 function canBeAttackedBy(target: Creature, attacker: Creature): boolean {
-  if (target.kind === 'shell' && RANK_OF[attacker.kind] === 'triangle') return false;
+  if (target.kind === 'shell' && RANK_OF[attacker.kind] === 'triangle' && attacker.kind !== 'penitent') return false;
   return true;
 }
 

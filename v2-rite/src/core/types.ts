@@ -3,8 +3,8 @@ export type Side = 'player' | 'enemy';
 /** Внутренние имена рангов. В интерфейсе они никогда не показываются (1.1). */
 export type Rank = 'triangle' | 'square' | 'circle';
 
-export type PlayerKind = 'acolyte' | 'warden' | 'hierophant';
-export type EnemyKind = 'larva' | 'weaver' | 'shell' | 'catcher' | 'eye' | 'preacher';
+export type PlayerKind = 'acolyte' | 'penitent' | 'warden' | 'hierophant';
+export type EnemyKind = 'larva' | 'weaver' | 'shell' | 'catcher' | 'bellringer' | 'eye' | 'preacher';
 export type CreatureKind = PlayerKind | EnemyKind;
 
 export interface Cell {
@@ -123,6 +123,7 @@ export type BattleEvent =
   | { t: 'blocked'; at: Cell; source: 'cocoon' | 'arena'; turns?: number }
   | { t: 'unblocked'; at: Cell }
   | { t: 'pushed'; id: Id; from: Cell; to: Cell }
+  | { t: 'stunned'; id: Id; at: Cell }
   | { t: 'emberArmed'; at: Cell }
   | { t: 'emberFired'; at: Cell }
   | { t: 'bossPhase'; phase: 2 }
