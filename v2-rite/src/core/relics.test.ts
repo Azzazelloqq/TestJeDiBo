@@ -21,8 +21,8 @@ describe('Свеча бдения', () => {
   });
 
   it('со Свечой карта тянется уже на 2-м ходу игрока', () => {
-    const a = c('player', 'acolyte', 4, 4);
-    const foe = c('enemy', 'larva', 1, 1);
+    const a = c('player', 'warden', 4, 4);
+    const foe = c('enemy', 'brute', 1, 1);
     const state = makeState([a, foe], { turn: 'enemy', relics: ['vigilCandle'], pool: ['spy'], actionsTaken: 1 });
     const events = endTurnAndAdvance(state, () => 0);
     expect(state.playerTurnNumber).toBe(2);
@@ -31,8 +31,8 @@ describe('Свеча бдения', () => {
   });
 
   it('без Свечи на 2-м ходу карта не приходит', () => {
-    const a = c('player', 'acolyte', 4, 4);
-    const foe = c('enemy', 'larva', 1, 1);
+    const a = c('player', 'warden', 4, 4);
+    const foe = c('enemy', 'brute', 1, 1);
     const state = makeState([a, foe], { turn: 'enemy', pool: ['spy'], actionsTaken: 1 });
     endTurnAndAdvance(state, () => 0);
     expect(state.karma.pendingCard).toBeNull();
@@ -43,9 +43,9 @@ describe('Первая кровь', () => {
   it('первое убийство в бою стоит 1 ОД, ход продолжается; второе — обычное', () => {
     const w1 = c('player', 'warden', 4, 4);
     const w2 = c('player', 'warden', 1, 4);
-    const foe1 = c('enemy', 'larva', 4, 3);
-    const foe2 = c('enemy', 'larva', 1, 3);
-    const foe3 = c('enemy', 'larva', 7, 1);
+    const foe1 = c('enemy', 'brute', 4, 3);
+    const foe2 = c('enemy', 'brute', 1, 3);
+    const foe3 = c('enemy', 'brute', 7, 1);
     const state = makeState([w1, w2, foe1, foe2, foe3], { relics: ['firstBlood'] });
 
     const first = applyAttack(state, w1.id, { x: 4, y: 3 }, () => 0.5);
@@ -61,10 +61,10 @@ describe('Первая кровь', () => {
 
 describe('Терновый обод', () => {
   it('при гибели своего существа гибнет соседняя тварь', () => {
-    const a = c('player', 'acolyte', 4, 4);
+    const a = c('player', 'warden', 4, 4);
     const other = c('player', 'warden', 0, 7);
-    const foe = c('enemy', 'larva', 4, 3);
-    const far = c('enemy', 'larva', 0, 0);
+    const foe = c('enemy', 'brute', 4, 3);
+    const far = c('enemy', 'brute', 0, 0);
     const state = makeState([a, other, foe, far], { relics: ['thornRim'] });
 
     const events: BattleEvent[] = [];
@@ -78,7 +78,7 @@ describe('Терновый обод', () => {
 });
 
 describe('Пепельный венец', () => {
-  it('одна случайная Личинка врага не появляется в бою', () => {
+  it('один случайный Квадрат врага не появляется в бою', () => {
     const order = [{ id: 'o1', kind: 'warden' as const, marks: 0 }];
     const plain = createBattle(order, BATTLES.L1, [], [], 0, () => 0.5);
     expect(plain.state.creatures.filter((cr) => cr.side === 'enemy')).toHaveLength(3);
@@ -91,9 +91,9 @@ describe('Пепельный венец', () => {
 
 describe('Реликварий', () => {
   it('за посвящение — случайная карта в пул до конца боя', () => {
-    const a = c('player', 'acolyte', 4, 1);
-    const other = c('player', 'acolyte', 6, 6);
-    const foe = c('enemy', 'larva', 1, 3);
+    const a = c('player', 'warden', 4, 1);
+    const other = c('player', 'warden', 6, 6);
+    const foe = c('enemy', 'brute', 1, 3);
     const state = makeState([a, other, foe], { relics: ['reliquary'] });
 
     const { state: next, events } = applyMove(state, a.id, { x: 4, y: 0 }, () => 0);

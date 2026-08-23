@@ -29,6 +29,7 @@ import { CANVAS_H, CANVAS_W } from './view/geometry';
 import { drawGrain, drawVignette } from './view/renderer';
 
 const BATTLE_END_DELAY_MS = 800; // 16: пауза перед итогами/наградой
+const FINISHER_END_DELAY_MS = 1800;
 
 // ---------- Холст ----------
 
@@ -102,6 +103,16 @@ function playEventSounds(events: BattleEvent[]): void {
         sfxLater(big ? 'kill_big' : 'kill', hasAttack ? 260 + cursor : cursor);
         break;
       }
+      case 'stunned':
+        audio.sfx('bell_toll');
+        break;
+      case 'combo':
+        if (e.count >= 3) audio.sfx('kill_big', { volume: 0.7 });
+        break;
+      case 'finisher':
+        audio.duckForOrdination();
+        sfxLater('kill_big', 260);
+        break;
       case 'ordained':
         audio.duckForOrdination();
         audio.sfx('ordain');
@@ -161,12 +172,13 @@ function handleBattleEvents(events: BattleEvent[]): void {
   if (battle && battle.winner !== null) {
     audio.setHeartbeat(false);
     if (battleEndTimer) clearTimeout(battleEndTimer);
+    const delay = events.some((e) => e.t === 'finisher') ? FINISHER_END_DELAY_MS : BATTLE_END_DELAY_MS;
     battleEndTimer = setTimeout(() => {
       battleEndTimer = null;
       completeBattle(run);
       if (run.overlay) overlayShownAt = performance.now();
       if (run.overlay?.kind === 'relic-scene') audio.sfx('relic_get');
-    }, BATTLE_END_DELAY_MS);
+    }, delay);
   }
 }
 
@@ -180,9 +192,10 @@ function startBattlePhase(events: BattleEvent[]): void {
 
 // ---------- Ввод ----------
 
-canvas.addEventListener('pointerdown', () => audio.unlock(), { once: true });
+canvas.addEventListener('pointerdown', () => audio.unlock());
 
 function handleClick(x: number, y: number): void {
+  audio.unlock();
   switch (run.phase) {
     case 'title': {
       if (pointInTitleButton(x, y)) {
@@ -297,6 +310,7 @@ attachInput(canvas, {
     hoverPoint = null;
   },
   onKey: (code) => {
+    audio.unlock();
     if (run.phase === 'battle') battleScreen.handleKey(code);
     else if (run.phase === 'summary' && code === 'Space') restart();
     else if (run.phase === 'map' && run.overlay?.kind === 'info' && code === 'Escape') closeRelicScene(run);

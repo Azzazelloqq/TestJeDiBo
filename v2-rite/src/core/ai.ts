@@ -1,4 +1,4 @@
-import { isDepressionTurn, isEyePushTurn, isSummonTurn, pickEyePushTarget } from './battle';
+import { isDepressionTurn, isSummonTurn } from './battle';
 import { getCreatureAt } from './board';
 import { creatureValue } from './creatures';
 import { canCreatureAct, reachableCells, getThreatenedCells } from './rules';
@@ -6,7 +6,6 @@ import { randInt, type BattleState, type Cell, type Creature, type Id } from './
 
 export type AiDecision =
   | { kind: 'depression' }
-  | { kind: 'push'; id: Id }
   | { kind: 'summon' }
   | { kind: 'attack'; id: Id; to: Cell }
   | { kind: 'move'; id: Id; to: Cell };
@@ -54,12 +53,6 @@ export function decideAiAction(state: BattleState, rng: () => number = Math.rand
   }
 
   if (state.ap < 1) return null;
-
-  // Око: на каждом 3-м ходу толчок вместо шагов 1–3; невозможен — обычный алгоритм (10.3).
-  const pushEye = isEyePushTurn(state)
-    ? state.creatures.find((c) => c.side === 'enemy' && c.kind === 'eye' && !c.acted && pickEyePushTarget(state, c) !== null)
-    : undefined;
-  if (pushEye) return { kind: 'push', id: pushEye.id };
 
   // Проповедник (фаза II): каждый 2-й ход призывает вместо шагов 1–3 (7.5).
   if (isSummonTurn(state)) {
@@ -126,10 +119,6 @@ export function computeIntents(state: BattleState): Map<Id, Intent> {
   for (const c of state.creatures) {
     if (c.side !== 'enemy') continue;
 
-    if (c.kind === 'eye' && isEyePushTurn(probe) && pickEyePushTarget(state, c) !== null) {
-      intents.set(c.id, { kind: 'ability' });
-      continue;
-    }
     if (c.kind === 'preacher' && (isDepressionTurn(probe) || isSummonTurn(probe))) {
       intents.set(c.id, { kind: 'ability' });
       continue;

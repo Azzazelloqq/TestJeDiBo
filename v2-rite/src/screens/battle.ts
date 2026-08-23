@@ -1,15 +1,21 @@
 import { computeIntents, decideAiAction, type Intent } from '../core/ai';
-import { applyAttack, applyDepression, applyEndTurn, applyEyePush, applyMove, applyPreacherSummon, forceEndTurn, type Result } from '../core/battle';
+import { applyAttack, applyDepression, applyEndTurn, applyMove, applyPreacherSummon, forceEndTurn, type Result } from '../core/battle';
 import { getCreatureAt, getCreatureById } from '../core/board';
-import { discardInapplicable, isCardApplicable, playBarrage, playBlitzkrieg, playDeathline, playResurrection, playSpy } from '../core/cards';
+import { CARDS, discardInapplicable, isCardApplicable, playBarrage, playBlitzkrieg, playDeathline, playResurrection, playSpy } from '../core/cards';
+import { RANK_OF } from '../core/creatures';
 import { getLegalAttacks, getLegalMoves } from '../core/rules';
-import type { BattleEvent, BattleState, Cell, Id } from '../core/types';
+import type { BattleEvent, BattleState, CardId, Cell, Id } from '../core/types';
+
+function cardTitle(card: CardId): string {
+  return CARDS[card].name;
+}
 import { audio } from '../audio/audio';
 import type { Animator } from '../view/animator';
-import { cellFromPoint } from '../view/geometry';
+import { boardPointFromScreen, cellFromPoint } from '../view/geometry';
 import {
   graveyardCreatureAt,
   pointInEndTurn,
+  pointInHint,
   pointInPendingCard,
   renderBattle,
   setSelectionOrigin,
@@ -40,9 +46,12 @@ export class BattleScreen {
   private intentsFor: BattleState | null = null;
   private discardMsgUntil = 0;
   private discardMsg: string | null = null;
+  private denyMsgUntil = 0;
+  private denyMsg: string | null = null;
   /** Хореография появления (13.7): момент показа боя и «первый бой рана». */
   private shownAtMs = 0;
   private firstBattle = false;
+  private hintUntilActions = 0;
 
   constructor(private deps: BattleDeps) {}
 
@@ -50,6 +59,7 @@ export class BattleScreen {
     this.selectedId = null;
     this.targeting = null;
     this.firstBattle = firstBattle;
+    this.hintUntilActions = firstBattle ? 3 : 1;
     this.shownAtMs = performance.now();
     this.intentsFor = null;
     this.stopAi();
@@ -82,18 +92,29 @@ export class BattleScreen {
 
   /** Центральный сток каждого применённого действия. */
   private commit(result: Result): void {
-    // Неприменимая пришедшая карта сбрасывается сама (9.1).
-    const settled = discardInapplicable(result.state);
+    let settled = result;
+    if (result.events.some((e) => e.t === 'cardDrawn')) {
+      settled = discardInapplicable(result.state);
+      settled = { state: settled.state, events: [...result.events, ...settled.events] };
+    }
     const state = settled.state;
-    const events = [...result.events, ...settled.events];
+    const events = settled.events;
 
     for (const e of events) {
       if (e.t === 'cardDiscarded' && state.karma.discardMessage) {
         this.discardMsg = state.karma.discardMessage;
-        this.discardMsgUntil = performance.now() + 1200;
+        this.discardMsgUntil = performance.now() + 1600;
+      }
+      if (e.t === 'cardPlayed') {
+        const name = e.card === 'depression' ? 'Депрессия' : cardTitle(e.card);
+        this.discardMsg = `Разыграно — ${name}`;
+        this.discardMsgUntil = performance.now() + 1800;
       }
     }
 
+    if (this.hintUntilActions > 0 && result.events.some((e) => e.t === 'moved' || e.t === 'attacked')) {
+      this.hintUntilActions -= 1;
+    }
     this.deps.setBattle(state);
     this.deps.onEvents(events);
 
@@ -116,48 +137,69 @@ export class BattleScreen {
     const battle = this.deps.getBattle();
     if (!battle || battle.turn !== 'enemy' || battle.winner !== null) return;
 
-    const decision = decideAiAction(battle);
-    let result: Result | null;
-    if (!decision) {
-      result = forceEndTurn(battle);
-    } else {
-      switch (decision.kind) {
-        case 'depression':
-          result = applyDepression(battle);
-          break;
-        case 'push': {
-          audio.sfx('eye_charge');
-          result = applyEyePush(battle, decision.id) ?? forceEndTurn(battle);
-          break;
+    try {
+      const decision = decideAiAction(battle);
+      let result: Result | null;
+      if (!decision) {
+        result = forceEndTurn(battle);
+      } else {
+        switch (decision.kind) {
+          case 'depression':
+            result = applyDepression(battle);
+            break;
+          case 'summon':
+            result = applyPreacherSummon(battle) ?? forceEndTurn(battle);
+            break;
+          case 'attack':
+            result = applyAttack(battle, decision.id, decision.to);
+            break;
+          case 'move':
+            result = applyMove(battle, decision.id, decision.to);
+            break;
         }
-        case 'summon':
-          result = applyPreacherSummon(battle) ?? forceEndTurn(battle);
-          break;
-        case 'attack':
-          result = applyAttack(battle, decision.id, decision.to);
-          break;
-        case 'move':
-          result = applyMove(battle, decision.id, decision.to);
-          break;
       }
+      this.commit(result);
+    } catch {
+      this.commit(forceEndTurn(battle));
     }
-    this.commit(result);
+  }
+
+  /** Клик по арене — с учётом zoom/shake камеры. UI (карта, конец хода) остаётся в экранных координатах. */
+  private boardCellAt(x: number, y: number): Cell | null {
+    const now = performance.now();
+    const cam = this.deps.animator.camera.transform(now);
+    const board = boardPointFromScreen(x, y, cam, now);
+    return cellFromPoint(board.x, board.y);
   }
 
   /** Пинок ИИ при входе в бой не нужен: первым всегда ходит игрок (6.3). */
 
   handleClick(x: number, y: number): void {
-    if (this.inputBlocked()) return;
     const battle = this.deps.getBattle();
     if (!battle || battle.winner !== null) return;
 
-    if (pointInEndTurn(x, y)) {
-      this.endTurn();
-      return;
-    }
+    // Карту можно нажать даже во время интро — иначе её не замечают.
     if (battle.karma.pendingCard && pointInPendingCard(x, y)) {
+      if (this.deps.animator.isBusy(performance.now())) return;
+      if (battle.turn !== 'player') {
+        this.denyMsg = 'Карту разыгрывают в свой ход';
+        this.denyMsgUntil = performance.now() + 1400;
+        audio.sfx('ui_deny');
+        return;
+      }
       audio.sfx('ui_click');
       this.playPendingCard();
+      return;
+    }
+
+    if (this.inputBlocked()) return;
+    if (this.hintUntilActions > 0 && pointInHint(x, y)) {
+      this.hintUntilActions = 0;
+      return;
+    }
+
+    if (pointInEndTurn(x, y)) {
+      this.endTurn();
       return;
     }
     if (this.targeting === 'resurrection') {
@@ -170,7 +212,7 @@ export class BattleScreen {
       }
     }
 
-    const cell = cellFromPoint(x, y);
+    const cell = this.boardCellAt(x, y);
     if (!cell) {
       this.cancel();
       return;
@@ -179,7 +221,12 @@ export class BattleScreen {
   }
 
   private handleCellClick(battle: BattleState, cell: Cell): void {
-    if (battle.turn !== 'player') return;
+    if (battle.turn !== 'player') {
+      this.denyMsg = 'Сейчас ход противника';
+      this.denyMsgUntil = performance.now() + 1200;
+      audio.sfx('ui_deny');
+      return;
+    }
 
     if (this.targeting === 'spy') {
       const target = getCreatureAt(battle.creatures, cell);
@@ -192,6 +239,20 @@ export class BattleScreen {
     }
 
     const clicked = getCreatureAt(battle.creatures, cell);
+
+    if (clicked && clicked.side === 'enemy') {
+      const attackerId = this.findAttacker(battle, cell);
+      if (attackerId) {
+        const result = applyAttack(battle, attackerId, cell);
+        this.clearSelection();
+        this.commit(result);
+        return;
+      }
+      audio.sfx('ui_deny');
+      this.denyMsg = clicked.kind === 'shell' ? 'Панцирь не принимает этот удар' : 'Не достаёт';
+      this.denyMsgUntil = performance.now() + 1100;
+      return;
+    }
 
     if (this.selectedId) {
       const selected = getCreatureById(battle.creatures, this.selectedId);
@@ -207,25 +268,71 @@ export class BattleScreen {
         this.commit(result);
         return;
       }
-      const attacks = getLegalAttacks(battle, this.selectedId);
-      if (attacks.some((c) => c.x === cell.x && c.y === cell.y)) {
-        const result = applyAttack(battle, this.selectedId, cell);
-        this.clearSelection();
-        this.commit(result);
-        return;
-      }
-      audio.sfx('ui_deny');
-      this.clearSelection();
+      this.denyMove(selected, cell);
       return;
     }
 
     if (clicked && clicked.side === 'player') {
       if (clicked.acted && !this.canActViaBlitz(battle, clicked.id)) {
+        this.denyMsg = 'Эта фигура уже ходила';
+        this.denyMsgUntil = performance.now() + 1400;
         audio.sfx('ui_deny');
         return;
       }
       this.select(battle, clicked.id);
+      return;
     }
+
+    const moverId = this.findMover(battle, cell);
+    if (moverId) {
+      const result = applyMove(battle, moverId, cell);
+      this.clearSelection();
+      this.commit(result);
+      return;
+    }
+    this.denyMsg = 'Сначала кликни свою фигуру';
+    this.denyMsgUntil = performance.now() + 1400;
+    audio.sfx('ui_deny');
+  }
+
+  private denyMove(selected: ReturnType<typeof getCreatureById>, cell: Cell): void {
+    audio.sfx('ui_deny');
+    if (!selected) {
+      this.denyMsg = 'Сюда не сходить';
+    } else if (RANK_OF[selected.kind] === 'square' && cell.y > selected.cell.y) {
+      this.denyMsg = 'Квадрат не ходит назад';
+    } else {
+      this.denyMsg = 'Сюда не достаёт';
+    }
+    this.denyMsgUntil = performance.now() + 1400;
+  }
+
+  /** Кто может шагнуть на пустую клетку: выбранное существо, иначе любой, кто достаёт. */
+  private findMover(battle: BattleState, cell: Cell): Id | null {
+    if (this.selectedId) {
+      const moves = getLegalMoves(battle, this.selectedId);
+      if (moves.some((c) => c.x === cell.x && c.y === cell.y)) return this.selectedId;
+    }
+    for (const creature of battle.creatures) {
+      if (creature.side !== 'player') continue;
+      const moves = getLegalMoves(battle, creature.id);
+      if (moves.some((c) => c.x === cell.x && c.y === cell.y)) return creature.id;
+    }
+    return null;
+  }
+
+  /** Кто может ударить клетку: выбранное существо, иначе любой, кто достаёт. */
+  private findAttacker(battle: BattleState, cell: Cell): Id | null {
+    if (this.selectedId) {
+      const attacks = getLegalAttacks(battle, this.selectedId);
+      if (attacks.some((c) => c.x === cell.x && c.y === cell.y)) return this.selectedId;
+    }
+    for (const creature of battle.creatures) {
+      if (creature.side !== 'player') continue;
+      const attacks = getLegalAttacks(battle, creature.id);
+      if (attacks.some((c) => c.x === cell.x && c.y === cell.y)) return creature.id;
+    }
+    return null;
   }
 
   private canActViaBlitz(battle: BattleState, id: Id): boolean {
@@ -248,9 +355,17 @@ export class BattleScreen {
 
   private endTurn(): void {
     const battle = this.deps.getBattle();
-    if (!battle || battle.turn !== 'player' || battle.winner !== null) return;
+    if (!battle || battle.winner !== null) return;
+    if (battle.turn !== 'player') {
+      this.denyMsg = 'Сейчас ход противника';
+      this.denyMsgUntil = performance.now() + 1200;
+      audio.sfx('ui_deny');
+      return;
+    }
     const result = applyEndTurn(battle);
     if (result.events.length === 0) {
+      this.denyMsg = battle.actionsTaken < 1 ? 'Сначала сходи фигурой' : 'Ход уже кончился';
+      this.denyMsgUntil = performance.now() + 1400;
       audio.sfx('ui_deny');
       return;
     }
@@ -264,7 +379,7 @@ export class BattleScreen {
     if (!battle || battle.turn !== 'player' || !battle.karma.pendingCard) return;
     const card = battle.karma.pendingCard;
     if (!isCardApplicable(battle, card)) {
-      this.commit({ state: battle, events: [] }); // discardInapplicable внутри commit
+      this.commit(discardInapplicable(battle));
       return;
     }
     switch (card) {
@@ -280,16 +395,20 @@ export class BattleScreen {
         break;
       case 'spy':
         this.targeting = 'spy';
+        this.denyMsg = 'Выбери тварь — она перейдёт в орден';
+        this.denyMsgUntil = performance.now() + 2400;
         break;
       case 'resurrection':
         this.targeting = 'resurrection';
+        this.denyMsg = 'Выбери павшего слева от арены';
+        this.denyMsgUntil = performance.now() + 2400;
         break;
     }
   }
 
   handleHover(x: number, y: number): void {
     this.hoverPoint = { x, y };
-    const cell = cellFromPoint(x, y);
+    const cell = this.boardCellAt(x, y);
     if (cell && (!this.hoverCell || this.hoverCell.x !== cell.x || this.hoverCell.y !== cell.y)) {
       if (!this.inputBlocked()) audio.sfx('ui_hover', { volume: 0.4 });
     }
@@ -319,6 +438,10 @@ export class BattleScreen {
       this.intentsFor = battle;
     }
 
+    if (battle.turn === 'enemy' && battle.winner === null && this.aiTimer === null) {
+      this.scheduleAi();
+    }
+
     const blocked = this.inputBlocked();
     const introFx = this.computeIntroFx(battle, nowMs);
 
@@ -333,8 +456,12 @@ export class BattleScreen {
       targeting: this.targeting,
       animator: this.deps.animator,
       intents: nowMs - this.shownAtMs > (this.firstBattle ? 3600 : 0) ? this.intents : new Map(),
-      discardMessage: nowMs < this.discardMsgUntil ? this.discardMsg : null,
+      discardMessage: nowMs < this.denyMsgUntil ? this.denyMsg : nowMs < this.discardMsgUntil ? this.discardMsg : null,
       spawnFx: introFx,
+      hint:
+        this.hintUntilActions > 0 && nowMs - this.shownAtMs > this.introDurationMs()
+          ? 'Кликни свою фигуру, потом клетку. Стрелки над тварями — куда они пойдут'
+          : null,
     };
     renderBattle(ctx, battle, extra);
   }

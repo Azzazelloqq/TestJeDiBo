@@ -4,16 +4,13 @@ import { drawCreature, PALETTE } from '../view/creatureArt';
 import { CANVAS_H, CANVAS_W } from '../view/geometry';
 import { cardEffect, cardName, drawRelic, drawTooltip, relicEffect, relicName, SERIF, smallCaps } from '../view/ui';
 
-/** Позиции узлов: уровни идут снизу вверх (4.2). */
+/** Позиции узлов: уровни идут снизу вверх, центр свободен от боковых панелей. */
 export function nodePosition(node: PathNode): { x: number; y: number } {
-  const y = 640 - (node.level - 1) * 66;
+  const y = 656 - (node.level - 1) * 62;
   const siblings = PATH_LEVELS[node.level - 1];
-  if (siblings.length === 1) {
-    const wiggle = node.level % 2 === 0 ? 0 : node.level % 4 === 1 ? -26 : 26;
-    return { x: CANVAS_W / 2 + wiggle, y };
-  }
+  if (siblings.length === 1) return { x: CANVAS_W / 2, y };
   const idx = siblings.indexOf(node);
-  return { x: CANVAS_W / 2 + (idx === 0 ? -90 : 90), y };
+  return { x: CANVAS_W / 2 + (idx === 0 ? -118 : 118), y };
 }
 
 export function mapNodeAt(x: number, y: number): PathNode | null {
@@ -123,8 +120,17 @@ export function renderMap(
 
       ctx.restore();
 
+      ctx.save();
+      ctx.globalAlpha = t * (available || completed ? 0.9 : 0.45);
+      ctx.fillStyle = available ? PALETTE.textMain : PALETTE.textMuted;
+      ctx.font = `12px ${SERIF}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(node.label, p.x, p.y + r + 8);
+      ctx.restore();
+
       if (hovered) {
-        hoverInfo = { title: node.label, body: nodeTypeName(node.type), x: p.x, y: p.y + 26 };
+        hoverInfo = { title: node.label, body: nodeTypeName(node.type), x: p.x, y: p.y + r + 26 };
       }
     }
   }
@@ -252,13 +258,13 @@ function drawOrderPanel(ctx: CanvasRenderingContext2D, run: RunState, nowMs: num
   ctx.font = `13px ${SERIF}`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
-  ctx.fillText(smallCaps('Орден'), 60, 60);
+  ctx.fillText(smallCaps('Отряд'), 48, 48);
 
   run.order.forEach((member, i) => {
-    const col = i % 3;
-    const row = Math.floor(i / 3);
-    const x = 90 + col * 60;
-    const y = 130 + row * 60;
+    const col = i % 2;
+    const row = Math.floor(i / 2);
+    const x = 78 + col * 70;
+    const y = 118 + row * 64;
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(0.5, 0.5);

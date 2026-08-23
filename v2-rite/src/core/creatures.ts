@@ -2,33 +2,23 @@ import type { CreatureKind, EnemyKind, PlayerKind, Rank } from './types';
 
 /** Ранг задаёт только правила движения и атаки (7). */
 export const RANK_OF: Record<CreatureKind, Rank> = {
-  acolyte: 'triangle',
-  penitent: 'triangle',
   warden: 'square',
   hierophant: 'circle',
-  larva: 'triangle',
-  weaver: 'triangle',
+  brute: 'square',
   shell: 'square',
-  catcher: 'square',
-  bellringer: 'square',
   eye: 'circle',
   preacher: 'circle',
 };
 
 /** Ценности для ИИ (10.1). */
 export const VALUE_ENEMY: Record<EnemyKind, number> = {
-  larva: 10,
-  weaver: 20,
+  brute: 20,
   shell: 40,
-  bellringer: 45,
-  catcher: 50,
   eye: 100,
   preacher: 200,
 };
 
 export const VALUE_PLAYER: Record<PlayerKind, number> = {
-  acolyte: 10,
-  penitent: 20,
   warden: 40,
   hierophant: 100,
 };
@@ -37,32 +27,44 @@ export function creatureValue(kind: CreatureKind): number {
   return (VALUE_ENEMY as Record<string, number>)[kind] ?? (VALUE_PLAYER as Record<string, number>)[kind] ?? 0;
 }
 
-/** Посвящение ордена (6.7). Кающийся не посвящается никогда — его путь окончен. */
+/** Посвящение ордена: квадрат становится кругом. */
 export function ordainedPlayerKind(kind: CreatureKind): PlayerKind | null {
-  if (kind === 'acolyte') return 'warden';
   if (kind === 'warden') return 'hierophant';
   return null;
 }
 
-/** Твари посвящаются зеркально (6.7): по рангу вверх. */
+/** Твари посвящаются зеркально: квадрат становится кругом. Панцирь и босс — нет. */
 export function ordainedEnemyKind(kind: CreatureKind): EnemyKind | null {
-  const rank = RANK_OF[kind];
-  if (rank === 'triangle') return 'shell';
-  if (rank === 'square') return 'eye';
+  if (kind === 'brute') return 'eye';
   return null;
 }
 
+/** Одна строка — что делает существо. Для осмотра на арене. */
+export const KIND_TRAITS: Record<CreatureKind, string> = {
+  warden: 'Квадрат. Шаг и удар на 1–3: вперёд, вбок, вперёд по диагонали. Панциря не берёт.',
+  hierophant: 'Круг. Ходит и бьёт во все стороны на 1–5. Бьёт Панциря.',
+  brute: 'Квадрат. Ходит и бьёт как Страж, со стороны тварей.',
+  shell: 'Бронированный квадрат. Берёт только удар круга — Иерофанта.',
+  eye: 'Круг. Ходит и бьёт во все стороны на 1–5.',
+  preacher: 'Босс. Сужает дальность Стражей и Иерофантов. Во второй фазе зовёт Квадраты.',
+};
+
+/** Короткая метка для списка тварей на арене. */
+export const KIND_MARKS: Record<CreatureKind, string> = {
+  warden: 'Квадрат · удар 1–3',
+  hierophant: 'Круг · все стороны',
+  brute: 'Квадрат',
+  shell: 'Броня · бей кругом',
+  eye: 'Круг',
+  preacher: 'Босс',
+};
+
 export const KIND_NAMES: Record<CreatureKind, string> = {
-  acolyte: 'Послушник',
-  penitent: 'Кающийся',
   warden: 'Страж',
   hierophant: 'Иерофант',
-  larva: 'Личинка',
-  weaver: 'Ткач',
+  brute: 'Квадрат',
   shell: 'Панцирь',
-  catcher: 'Ловчий',
-  bellringer: 'Звонарь',
-  eye: 'Око',
+  eye: 'Круг',
   preacher: 'Проповедник',
 };
 

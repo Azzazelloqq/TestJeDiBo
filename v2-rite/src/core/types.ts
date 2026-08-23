@@ -3,8 +3,8 @@ export type Side = 'player' | 'enemy';
 /** Внутренние имена рангов. В интерфейсе они никогда не показываются (1.1). */
 export type Rank = 'triangle' | 'square' | 'circle';
 
-export type PlayerKind = 'acolyte' | 'penitent' | 'warden' | 'hierophant';
-export type EnemyKind = 'larva' | 'weaver' | 'shell' | 'catcher' | 'bellringer' | 'eye' | 'preacher';
+export type PlayerKind = 'warden' | 'hierophant';
+export type EnemyKind = 'brute' | 'shell' | 'eye' | 'preacher';
 export type CreatureKind = PlayerKind | EnemyKind;
 
 export interface Cell {
@@ -106,6 +106,8 @@ export interface BattleState {
   spawnCounter: number;
   /** Ход тварей, в который Проповедник уже разыграл Депрессию. */
   lastDepressionTurn: number;
+  /** Убийства тварей за текущий ход игрока (комбо). */
+  killStreak: number;
 }
 
 export type BattleEvent =
@@ -124,6 +126,8 @@ export type BattleEvent =
   | { t: 'unblocked'; at: Cell }
   | { t: 'pushed'; id: Id; from: Cell; to: Cell }
   | { t: 'stunned'; id: Id; at: Cell }
+  | { t: 'combo'; count: number }
+  | { t: 'finisher'; at: Cell; kind: CreatureKind }
   | { t: 'emberArmed'; at: Cell }
   | { t: 'emberFired'; at: Cell }
   | { t: 'bossPhase'; phase: 2 }

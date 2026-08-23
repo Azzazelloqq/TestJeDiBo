@@ -1,4 +1,5 @@
 import type { BattleEvent, Cell, CreatureKind, Id, Rank, Side } from '../core/types';
+import type { AvatarMood, AvatarPose } from './avatars';
 import { cellCenter, BOARD_ORIGIN, BOARD_PX } from './geometry';
 import { Camera } from './camera';
 import { ParticleSystem } from './particles';
@@ -78,6 +79,12 @@ export class Animator {
   private craters: Cell[] = [];
   private seenScenes = new Set<string>();
   private timers: ReturnType<typeof setTimeout>[] = [];
+  private stunnedUntil = new Map<Id, number>();
+  private comboUntil = 0;
+  private comboCount = 0;
+  private finisherUntil = 0;
+  private playerAvatar: AvatarPose = { mood: 'idle', until: 0 };
+  private enemyAvatar: AvatarPose = { mood: 'idle', until: 0 };
 
   /** Сброс между боями. Сцены-повторы (`seenScenes`) живут весь ран. */
   resetBattle(): void {
@@ -93,6 +100,12 @@ export class Animator {
     for (const t of this.timers) clearTimeout(t);
     this.timers = [];
     this.particles.particles = [];
+    this.stunnedUntil.clear();
+    this.comboUntil = 0;
+    this.comboCount = 0;
+    this.finisherUntil = 0;
+    this.playerAvatar = { mood: 'idle', until: 0 };
+    this.enemyAvatar = { mood: 'idle', until: 0 };
   }
 
   resetRun(): void {
@@ -110,7 +123,30 @@ export class Animator {
     if (this.ordainScene && nowMs < this.ordainScene.startedAt + this.ordainScene.duration) return true;
     if (this.cardScene && nowMs < this.cardScene.startedAt + this.cardScene.duration) return true;
     if (this.bossScene && nowMs < this.bossScene.startedAt + this.bossScene.duration) return true;
+    if (nowMs < this.finisherUntil) return true;
     return false;
+  }
+
+  isStunned(id: Id, nowMs: number): boolean {
+    return nowMs < (this.stunnedUntil.get(id) ?? 0);
+  }
+
+  getPlayerAvatar(nowMs: number): AvatarPose {
+    return nowMs < this.playerAvatar.until ? this.playerAvatar : { mood: 'idle', until: 0 };
+  }
+
+  getEnemyAvatar(nowMs: number): AvatarPose {
+    return nowMs < this.enemyAvatar.until ? this.enemyAvatar : { mood: 'idle', until: 0 };
+  }
+
+  private setAvatar(side: Side, mood: AvatarMood, until: number): void {
+    if (side === 'player') this.playerAvatar = { mood, until };
+    else this.enemyAvatar = { mood, until };
+  }
+
+  getComboFlash(nowMs: number): { count: number; alpha: number } | null {
+    if (nowMs >= this.comboUntil || this.comboCount < 2) return null;
+    return { count: this.comboCount, alpha: Math.max(0, (this.comboUntil - nowMs) / 700) };
   }
 
   isHitstopped(nowMs: number): boolean {
@@ -187,6 +223,8 @@ export class Animator {
   processEvents(events: BattleEvent[], nowMs: number, bossCell?: Cell): void {
     let cursor = 0;
     let pendingKill: { id: Id; at: Cell; kind: CreatureKind } | null = null;
+    const finisher = events.find((e) => e.t === 'finisher');
+    const combo = [...events].reverse().find((e) => e.t === 'combo');
 
     for (const event of events) {
       switch (event.t) {
@@ -204,17 +242,61 @@ export class Animator {
         }
         case 'killed': {
           pendingKill = { id: event.id, at: event.at, kind: event.kind };
+          if (event.side === 'player') {
+            this.setAvatar('player', 'hurt', nowMs + cursor + 1400);
+            this.setAvatar('enemy', 'eat', nowMs + cursor + 1200);
+          } else {
+            this.setAvatar('player', 'eat', nowMs + cursor + 1200);
+            this.setAvatar('enemy', 'hurt', nowMs + cursor + 1400);
+          }
           // Гибель без атаки (карта, вспышка, обод) — распад на месте.
           // Если следом идёт attacked на ту же клетку, распад делает атака.
           break;
         }
         case 'attacked': {
           const big = pendingKill !== null && BIG_KILL_KINDS.includes(pendingKill.kind);
-          this.runAttackSequence(event.id, event.from, event.to, nowMs + cursor, big);
+          this.runAttackSequence(event.id, event.from, event.to, nowMs + cursor, {
+            big,
+            finisher: finisher !== undefined,
+            combo: combo && combo.t === 'combo' ? combo.count : 0,
+          });
           pendingKill = null;
-          cursor += ATTACK_DEBRIS_LANDS_AT_MS;
+          cursor += finisher ? ATTACK_DEBRIS_LANDS_AT_MS + 400 : ATTACK_DEBRIS_LANDS_AT_MS;
           break;
         }
+        case 'stunned': {
+          const { x, y } = cellCenter(event.at);
+          this.stunnedUntil.set(event.id, nowMs + cursor + 900);
+          this.schedule(cursor, () => this.particles.wormwoodSmoke(x, y, 6));
+          break;
+        }
+        case 'combo': {
+          this.comboCount = event.count;
+          this.comboUntil = nowMs + cursor + 700;
+          break;
+        }
+        case 'finisher': {
+          this.finisherUntil = nowMs + cursor + 1400;
+          const { x, y } = cellCenter(event.at);
+          this.schedule(cursor, () => {
+            this.camera.zoomTransition(1.22, 220, nowMs + cursor);
+            this.camera.shake(SHAKE_WOW_SCENE_PX, 360, nowMs + cursor);
+            this.particles.boneShards(x, y, '#D9A441', 10);
+            this.particles.sparks(x, y, 16);
+          });
+          this.schedule(cursor + 900, () => this.camera.zoomTransition(1, 400, nowMs + cursor + 900));
+          this.setAvatar('player', 'eat', nowMs + cursor + 1100);
+          this.setAvatar('enemy', 'hurt', nowMs + cursor + 1400);
+          break;
+        }
+        case 'battleWon':
+          this.setAvatar('player', 'win', nowMs + cursor + 8000);
+          this.setAvatar('enemy', 'lose', nowMs + cursor + 8000);
+          break;
+        case 'battleLost':
+          this.setAvatar('player', 'lose', nowMs + cursor + 8000);
+          this.setAvatar('enemy', 'win', nowMs + cursor + 8000);
+          break;
         case 'ordained': {
           this.runOrdainScene(event, nowMs + cursor);
           cursor += this.ordainScene?.duration ?? ORDAIN_DURATION_MS;
@@ -256,6 +338,7 @@ export class Animator {
           break;
         }
         case 'cardPlayed': {
+          this.setAvatar('player', 'cast', nowMs + cursor + 700);
           if (event.card === 'deathline') {
             const { column } = event.payload as { column: number };
             this.runDeathlineScene(column, nowMs + cursor);
@@ -294,10 +377,16 @@ export class Animator {
   }
 
   /** Атака — эталонная последовательность (13.3). */
-  private runAttackSequence(attackerId: Id, from: Cell, to: Cell, atMs: number, big: boolean): void {
+  private runAttackSequence(
+    attackerId: Id,
+    from: Cell,
+    to: Cell,
+    atMs: number,
+    opts: { big: boolean; finisher: boolean; combo: number }
+  ): void {
     const base = atMs - performance.now();
-    const hitstop = big ? ATTACK_HITSTOP_BIG_MS : ATTACK_HITSTOP_MS;
-    const shake = big ? SHAKE_BIG_KILL_PX : SHAKE_KILL_PX;
+    const hitstop = opts.finisher ? 260 : opts.big ? ATTACK_HITSTOP_BIG_MS : ATTACK_HITSTOP_MS;
+    const shake = opts.finisher ? SHAKE_WOW_SCENE_PX : opts.big ? SHAKE_BIG_KILL_PX : SHAKE_KILL_PX;
 
     // 0 мс: замах — существо остаётся на месте (слайд с нулевым смещением создаёт паузу).
     this.slides.push({ id: attackerId, from, to: from, startedAt: atMs, duration: ATTACK_WINDUP_MS });
@@ -310,15 +399,16 @@ export class Animator {
     this.schedule(base + ATTACK_SHATTER_AT_MS - hitstop, () => {
       this.hitstopUntil = atMs + ATTACK_SHATTER_AT_MS;
       this.flashUntil = atMs + ATTACK_SHATTER_AT_MS - hitstop + 40;
-      this.flashStrength = big ? 0.5 : 0.35;
+      this.flashStrength = opts.finisher ? 0.7 : opts.big ? 0.5 : 0.35;
     });
 
     // 260 мс: мир оживает — тряска, осколки, пятно.
     this.schedule(base + ATTACK_SHATTER_AT_MS, () => {
-      this.camera.shake(shake, big ? 260 : 180, atMs + ATTACK_SHATTER_AT_MS);
+      this.camera.shake(shake, opts.finisher || opts.big ? 280 : 180, atMs + ATTACK_SHATTER_AT_MS);
       const { x, y } = cellCenter(to);
-      this.particles.boneShards(x, y, big ? '#D9A441' : '#4A4643');
-      if (big) this.particles.sparks(x, y, 12);
+      this.particles.boneShards(x, y, opts.finisher || opts.big ? '#D9A441' : '#4A4643', opts.finisher ? 10 : undefined);
+      if (opts.big || opts.finisher || opts.combo >= 2) this.particles.sparks(x, y, opts.finisher ? 16 : 12);
+      if (opts.combo >= 3) this.particles.goldDustIn(x - 40, y - 40, x + 40, y + 40, 24);
       this.bloodSplats.push(to);
     });
 

@@ -55,8 +55,8 @@ export interface RunState {
 }
 
 export function startRun(): RunState {
-  // 6.2: стартовый орден — 2 Стража и 4 Послушника.
-  const kinds: CreatureKind[] = ['warden', 'warden', 'acolyte', 'acolyte', 'acolyte', 'acolyte'];
+  // Шесть Стражей: квадрат, который на последней линии становится кругом.
+  const kinds: CreatureKind[] = ['warden', 'warden', 'warden', 'warden', 'warden', 'warden'];
   return {
     phase: 'title',
     overlay: null,
@@ -214,9 +214,9 @@ export function completeBattle(run: RunState, rng: () => number = Math.random): 
   run.order = survivors;
   run.fallen.push(...dead);
 
-  // 4.3: после каждого выигранного боя орден получает +1 Послушника.
+  // После выигранного боя орден получает +1 Стража.
   run.idCounter += 1;
-  run.order.push({ id: `o${run.idCounter}`, kind: 'acolyte', marks: 0 });
+  run.order.push({ id: `o${run.idCounter}`, kind: 'warden', marks: 0 });
 
   const fromDoors = run.battleFromDoors;
   run.battle = null;
@@ -282,8 +282,8 @@ export function choosePickFallen(run: RunState, memberId: string): void {
   if (idx < 0) return;
   const member = run.fallen[idx];
   run.fallen.splice(idx, 1);
-  // 4.4/4.5: возвращается в орден Послушником.
-  run.order.push({ id: member.id, kind: 'acolyte', marks: member.marks });
+  // Возвращается в орден Стражем.
+  run.order.push({ id: member.id, kind: 'warden', marks: member.marks });
   run.overlay = null;
 }
 
@@ -343,7 +343,7 @@ export function isEventOptionAvailable(run: RunState, effect: EventEffect): bool
     case 'nextBattleAp':
       return true;
     case 'loseAcolyteGainRelic':
-      return run.order.some((m) => m.kind === 'acolyte') && untakenRelics(run).length > 0;
+      return run.order.some((m) => m.kind === 'warden') && untakenRelics(run).length > 0;
     case 'tradeCard':
       return run.pool.length > 0 && ALL_CARD_IDS.some((c) => !run.pool.includes(c));
     case 'ordainOne':
@@ -370,7 +370,7 @@ export function chooseEventOption(run: RunState, eventId: EventId, option: 'a' |
       run.overlay = null;
       return [];
     case 'loseAcolyteGainRelic': {
-      const idx = run.order.findIndex((m) => m.kind === 'acolyte');
+      const idx = run.order.findIndex((m) => m.kind === 'warden');
       const [lost] = run.order.splice(idx, 1);
       run.fallen.push(lost);
       giveRelicOverlay(run, rng);

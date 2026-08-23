@@ -1,13 +1,23 @@
 import { ARENAS, BOSS_PHASE2_LIGHT } from '../core/arenas';
+import { KIND_MARKS, KIND_NAMES, KIND_TRAITS } from '../core/creatures';
 import type { Intent } from '../core/ai';
-import { getCreatureAt } from '../core/board';
-import { isEyePushTurn } from '../core/battle';
+import { cellEquals, getCreatureAt } from '../core/board';
 import { apPerTurn, karmaPeriod } from '../core/relics';
 import { getThreatenedCells, reachableCells } from '../core/rules';
 import type { BattleState, Cell, Creature, Id } from '../core/types';
 import type { Animator } from './animator';
+import { drawAvatars } from './avatars';
 import { drawCreature, PALETTE, type CreatureMood } from './creatureArt';
-import { BOARD_ORIGIN, BOARD_PX, CANVAS_H, CANVAS_W, CELL_SIZE, cellCenter, cellTopLeft } from './geometry';
+import {
+  BOARD_ORIGIN,
+  BOARD_PX,
+  CANVAS_H,
+  CANVAS_W,
+  CELL_SIZE,
+  cellCenter,
+  cellTopLeft,
+  screenPointFromBoard,
+} from './geometry';
 import { drawCard, drawRelic, drawTooltip, relicEffect, relicName, smallCaps, SERIF, SANS } from './ui';
 
 export { CANVAS_W, CANVAS_H };
@@ -27,19 +37,28 @@ export interface BattleViewExtra {
   discardMessage: string | null;
   /** Хореография появления существ (13.7): альфа и вертикальный сдвиг. */
   spawnFx: Map<Id, { alpha: number; dy: number }> | null;
+  /** Короткая подсказка первого боя. */
+  hint: string | null;
 }
 
 // ---------- Хит-тесты ----------
 
 const END_TURN = { x: 1050, y: 655, w: 200, h: 34 };
-const PENDING_CARD = { x: 60, y: 300, w: 180, h: 260 };
+const PENDING_CARD = { x: 60, y: 200, w: 180, h: 260 };
+const PENDING_HIT = { x: 60, y: 200, w: 180, h: 310 };
 
 export function pointInEndTurn(x: number, y: number): boolean {
   return x >= END_TURN.x && x <= END_TURN.x + END_TURN.w && y >= END_TURN.y && y <= END_TURN.y + END_TURN.h;
 }
 
+const HINT_BAR = { x: 300, y: 68, w: 680, h: 32 };
+
+export function pointInHint(x: number, y: number): boolean {
+  return x >= HINT_BAR.x && x <= HINT_BAR.x + HINT_BAR.w && y >= HINT_BAR.y && y <= HINT_BAR.y + HINT_BAR.h;
+}
+
 export function pointInPendingCard(x: number, y: number): boolean {
-  return x >= PENDING_CARD.x && x <= PENDING_CARD.x + PENDING_CARD.w && y >= PENDING_CARD.y && y <= PENDING_CARD.y + PENDING_CARD.h;
+  return x >= PENDING_HIT.x && x <= PENDING_HIT.x + PENDING_HIT.w && y >= PENDING_HIT.y && y <= PENDING_HIT.y + PENDING_HIT.h;
 }
 
 const GRAVE_SPACING = 34;
@@ -60,7 +79,7 @@ export function graveyardCreatureAt(state: BattleState, x: number, y: number): I
 
 export function relicPositions(count: number): { x: number; y: number }[] {
   const out: { x: number; y: number }[] = [];
-  for (let i = 0; i < count; i++) out.push({ x: 1030 + i * 54, y: 46 });
+  for (let i = 0; i < count; i++) out.push({ x: 992 + (i % 4) * 44, y: 40 + Math.floor(i / 4) * 40 });
   return out;
 }
 
@@ -173,6 +192,8 @@ export function renderBattle(ctx: CanvasRenderingContext2D, state: BattleState, 
     ctx.save();
     ctx.translate(pos.x, pos.y + (fx?.dy ?? 0));
     if (fx) ctx.globalAlpha = fx.alpha;
+    const stunned = animator.isStunned(creature.id, nowMs);
+    if (stunned) ctx.globalAlpha = (fx?.alpha ?? 1) * 0.55;
     if (selected) {
       ctx.scale(1.08, 1.08);
       ctx.shadowColor = creature.side === 'player' ? PALETTE.player : PALETTE.blood;
@@ -186,6 +207,13 @@ export function renderBattle(ctx: CanvasRenderingContext2D, state: BattleState, 
       nowMs,
       mood: computeMood(state, creature, extra),
     });
+    if (stunned) {
+      ctx.strokeStyle = 'rgba(217,164,65,0.55)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, 26, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 
@@ -210,7 +238,20 @@ export function renderBattle(ctx: CanvasRenderingContext2D, state: BattleState, 
     ctx.restore();
   }
 
+  const playersLeft = state.creatures.filter((c) => c.side === 'player').length;
+  drawAvatars(
+    ctx,
+    nowMs,
+    extra.animator.getPlayerAvatar(nowMs),
+    extra.animator.getEnemyAvatar(nowMs),
+    playersLeft,
+    state.arena === 'altar'
+  );
+
   drawHud(ctx, state, extra);
+  drawEnemyRoster(ctx, state, extra);
+  drawInspect(ctx, state, extra);
+  if (extra.hint) drawHint(ctx, extra.hint);
   drawVignette(ctx);
   drawGrain(ctx, nowMs);
 
@@ -225,45 +266,14 @@ function computeMood(state: BattleState, creature: Creature, extra: BattleViewEx
   const mood: CreatureMood = {};
   if (creature.kind === 'shell') {
     mood.shellOpen = shellOpenAmount(state, creature, 16.7);
-  } else if (creature.kind === 'catcher') {
-    const nearest = nearestPlayer(state, creature.cell);
-    mood.gazeAngle = nearest ? Math.atan2(nearest.cell.y - creature.cell.y, nearest.cell.x - creature.cell.x) : null;
-  } else if (creature.kind === 'eye' && creature.side === 'enemy') {
-    const probe = { ...state, enemyTurnNumber: state.turn === 'player' ? state.enemyTurnNumber + 1 : state.enemyTurnNumber };
-    mood.eyeCharging = isEyePushTurn(probe);
-    if (extra.hoverPoint) {
-      const pos = cellCenter(creature.cell);
-      mood.cursorAngle = Math.atan2(extra.hoverPoint.y - pos.y, extra.hoverPoint.x - pos.x);
-    }
+  } else if (creature.kind === 'eye' && creature.side === 'enemy' && extra.hoverPoint) {
+    const pos = cellCenter(creature.cell);
+    mood.cursorAngle = Math.atan2(extra.hoverPoint.y - pos.y, extra.hoverPoint.x - pos.x);
   } else if (creature.kind === 'preacher') {
     const hovered = extra.hoverCell ? getCreatureAt(state.creatures, extra.hoverCell) : undefined;
     mood.preacherNarrow = hovered?.side === 'player';
-  } else if (creature.kind === 'weaver') {
-    const seed = creature.id.charCodeAt(creature.id.length - 1);
-    const dirs = [
-      { x: -CELL_SIZE, y: 0 },
-      { x: CELL_SIZE, y: 0 },
-      { x: 0, y: CELL_SIZE },
-      { x: -CELL_SIZE, y: CELL_SIZE },
-      { x: CELL_SIZE, y: -CELL_SIZE },
-    ];
-    mood.threadTargets = [dirs[seed % 5], dirs[(seed + 2) % 5], ...(seed % 2 === 0 ? [dirs[(seed + 4) % 5]] : [])];
   }
   return mood;
-}
-
-function nearestPlayer(state: BattleState, from: Cell): Creature | null {
-  let best: Creature | null = null;
-  let bestDist = Infinity;
-  for (const c of state.creatures) {
-    if (c.side !== 'player') continue;
-    const d = Math.abs(c.cell.x - from.x) + Math.abs(c.cell.y - from.y);
-    if (d < bestDist) {
-      bestDist = d;
-      best = c;
-    }
-  }
-  return best;
 }
 
 // ---------- Пол (11.3) ----------
@@ -271,13 +281,26 @@ function nearestPlayer(state: BattleState, from: Cell): Creature | null {
 function drawFloor(ctx: CanvasRenderingContext2D, state: BattleState, nowMs: number): void {
   const arena = ARENAS[state.arena];
 
-  // Один цвет, без шахматного чередования и без сетки.
-  ctx.fillStyle = PALETTE.floor;
+  // Пол + едва заметная сетка: иначе Жаровня выглядит как единственные клетки.
+  ctx.fillStyle = '#1A1714';
   ctx.fillRect(BOARD_ORIGIN.x, BOARD_ORIGIN.y, BOARD_PX, BOARD_PX);
 
-  // Насечки в углах клеток: короткие штрихи по диагонали от угла.
-  ctx.strokeStyle = 'rgba(239,230,216,0.06)';
+  ctx.strokeStyle = 'rgba(239,230,216,0.10)';
   ctx.lineWidth = 1;
+  for (let g = 0; g <= 8; g++) {
+    const x = BOARD_ORIGIN.x + g * CELL_SIZE + 0.5;
+    const y = BOARD_ORIGIN.y + g * CELL_SIZE + 0.5;
+    ctx.beginPath();
+    ctx.moveTo(x, BOARD_ORIGIN.y);
+    ctx.lineTo(x, BOARD_ORIGIN.y + BOARD_PX);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(BOARD_ORIGIN.x, y);
+    ctx.lineTo(BOARD_ORIGIN.x + BOARD_PX, y);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = 'rgba(239,230,216,0.08)';
   for (let gx = 1; gx < 8; gx++) {
     for (let gy = 1; gy < 8; gy++) {
       const x = BOARD_ORIGIN.x + gx * CELL_SIZE;
@@ -443,22 +466,24 @@ function drawThreat(ctx: CanvasRenderingContext2D, state: BattleState): void {
 }
 
 function drawSelection(ctx: CanvasRenderingContext2D, extra: BattleViewExtra): void {
-  // Каскад: задержка 14 мс × расстояние (11.4).
   for (const cell of extra.legalMoves) {
-    const dist = Math.max(Math.abs(cell.x - (extra.hoverCell?.x ?? cell.x)), 1);
-    void dist;
     const sel = extra.selectedId;
     if (!sel) break;
     const delay = 14 * cellDistanceFromSelection(cell);
     const t = Math.min(1, Math.max(0, (extra.nowMs - extra.selectedAtMs - delay) / 120));
     if (t <= 0) continue;
     const { x, y } = cellTopLeft(cell);
+    const hover = extra.hoverCell && cellEquals(extra.hoverCell, cell);
     ctx.globalAlpha = t;
-    ctx.fillStyle = 'rgba(239,230,216,0.10)';
+    ctx.fillStyle = hover ? 'rgba(239,230,216,0.28)' : 'rgba(239,230,216,0.16)';
     ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE);
-    ctx.strokeStyle = 'rgba(239,230,216,0.35)';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(x + 0.75, y + 0.75, CELL_SIZE - 1.5, CELL_SIZE - 1.5);
+    ctx.strokeStyle = hover ? 'rgba(239,230,216,0.85)' : 'rgba(239,230,216,0.55)';
+    ctx.lineWidth = hover ? 2.5 : 2;
+    ctx.strokeRect(x + 1.5, y + 1.5, CELL_SIZE - 3, CELL_SIZE - 3);
+    ctx.fillStyle = 'rgba(239,230,216,0.7)';
+    ctx.beginPath();
+    ctx.arc(x + CELL_SIZE / 2, y + CELL_SIZE / 2, 3.5, 0, Math.PI * 2);
+    ctx.fill();
     ctx.globalAlpha = 1;
   }
   for (const cell of extra.legalAttacks) {
@@ -492,14 +517,21 @@ function cellDistanceFromSelection(cell: Cell): number {
 
 function drawIntentTargets(ctx: CanvasRenderingContext2D, extra: BattleViewExtra, nowMs: number): void {
   for (const intent of extra.intents.values()) {
-    if (intent.kind !== 'attack') continue;
-    const { x, y } = cellTopLeft(intent.target);
     const pulse = 0.35 + 0.3 * (0.5 + 0.5 * Math.sin((nowMs / 700) * Math.PI * 2));
     ctx.save();
-    ctx.strokeStyle = PALETTE.blood;
     ctx.globalAlpha = pulse;
-    ctx.lineWidth = 2;
-    ctx.strokeRect(x + 2, y + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+    if (intent.kind === 'attack') {
+      const { x, y } = cellTopLeft(intent.target);
+      ctx.strokeStyle = PALETTE.blood;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x + 2, y + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+    } else if (intent.kind === 'move') {
+      const { x, y } = cellTopLeft(intent.to);
+      ctx.strokeStyle = 'rgba(239,230,216,0.45)';
+      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(x + 3, y + 3, CELL_SIZE - 6, CELL_SIZE - 6);
+    }
     ctx.restore();
   }
 }
@@ -729,7 +761,7 @@ function drawOrdainScene(
   ctx.shadowBlur = 24;
 
   // Трещины света на существе (600–850 мс).
-  const kind = creature?.kind ?? (scene.side === 'player' ? 'acolyte' : 'larva');
+  const kind = creature?.kind ?? (scene.side === 'player' ? 'warden' : 'brute');
   drawCreature(ctx, { kind, side: scene.side, id: scene.id, marks: creature?.marks ?? 0, nowMs, still: false });
 
   if (!showNew && scene.progress > 600 / 1400) {
@@ -776,6 +808,7 @@ function drawBossScene(ctx: CanvasRenderingContext2D, scene: { progress: number;
 // ---------- HUD (11.6) ----------
 
 function drawHud(ctx: CanvasRenderingContext2D, state: BattleState, extra: BattleViewExtra): void {
+  drawTurnBanner(ctx, state);
   drawApTrack(ctx, state);
   drawKarmaPips(ctx, state, extra.nowMs);
   drawEndTurn(ctx, state);
@@ -784,11 +817,24 @@ function drawHud(ctx: CanvasRenderingContext2D, state: BattleState, extra: Battl
   drawPoolIndicator(ctx, state);
 
   if (state.karma.pendingCard) {
-    drawCard(ctx, state.karma.pendingCard, PENDING_CARD.x, PENDING_CARD.y, 1, true);
-    ctx.fillStyle = PALETTE.textMuted;
-    ctx.font = `12px ${SANS}`;
+    const hover = extra.hoverPoint !== null && pointInPendingCard(extra.hoverPoint.x, extra.hoverPoint.y);
+    const pulse = 0.85 + 0.15 * Math.sin(extra.nowMs / 280);
+    ctx.save();
+    ctx.globalAlpha = state.turn === 'player' ? 1 : 0.55;
+    drawCard(ctx, state.karma.pendingCard, PENDING_CARD.x, PENDING_CARD.y, hover ? 1.03 : 1, hover || state.turn === 'player');
+    ctx.restore();
+    const btnY = PENDING_CARD.y + 268;
+    ctx.save();
+    ctx.fillStyle = state.turn === 'player' ? `rgba(46,107,94,${0.35 + 0.25 * pulse})` : 'rgba(46,107,94,0.15)';
+    ctx.beginPath();
+    ctx.roundRect(PENDING_CARD.x + 20, btnY, 140, 32, 4);
+    ctx.fill();
+    ctx.fillStyle = state.turn === 'player' ? PALETTE.textMain : PALETTE.textMuted;
+    ctx.font = `14px ${SERIF}`;
     ctx.textAlign = 'center';
-    ctx.fillText('разыграть', PENDING_CARD.x + 90, PENDING_CARD.y + 278);
+    ctx.textBaseline = 'middle';
+    ctx.fillText(state.turn === 'player' ? smallCaps('Нажми — разыграть') : smallCaps('Жди своего хода'), PENDING_CARD.x + 90, btnY + 16);
+    ctx.restore();
   }
 
   if (state.karma.depressionTurns > 0) {
@@ -819,10 +865,33 @@ function drawHud(ctx: CanvasRenderingContext2D, state: BattleState, extra: Battl
     ctx.textBaseline = 'middle';
     ctx.fillText(extra.targeting === 'spy' ? 'Выбери тварь' : 'Выбери существо на кладбище', CANVAS_W / 2, 70);
   }
+  const combo = extra.animator.getComboFlash(extra.nowMs);
+  if (combo) {
+    ctx.save();
+    ctx.globalAlpha = combo.alpha;
+    ctx.fillStyle = PALETTE.candle;
+    ctx.font = `28px ${SERIF}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = PALETTE.candle;
+    ctx.shadowBlur = 18;
+    ctx.fillText(`×${combo.count}`, CANVAS_W / 2, 48);
+    ctx.restore();
+  }
+}
+
+function drawTurnBanner(ctx: CanvasRenderingContext2D, state: BattleState): void {
+  const yours = state.turn === 'player';
+  ctx.fillStyle = yours ? PALETTE.textMain : PALETTE.blood;
+  ctx.font = `15px ${SERIF}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(yours ? smallCaps('Твой ход — кликни фигуру') : smallCaps('Ход противника'), CANVAS_W / 2, 52);
 }
 
 function drawApTrack(ctx: CanvasRenderingContext2D, state: BattleState): void {
-  const max = state.turn === 'player' ? apPerTurn(state.relics) + (state.playerTurnNumber === 1 ? state.firstTurnApBonus : 0) : 5;
+  const yours = state.turn === 'player';
+  const max = yours ? apPerTurn(state.relics) + (state.playerTurnNumber === 1 ? state.firstTurnApBonus : 0) : 5;
   const step = 26;
   const centerX = BOARD_ORIGIN.x + BOARD_PX / 2;
   const startX = centerX - ((max - 1) * step) / 2;
@@ -832,9 +901,10 @@ function drawApTrack(ctx: CanvasRenderingContext2D, state: BattleState): void {
     ctx.arc(x, 648, 7, 0, Math.PI * 2);
     if (i < state.ap) {
       ctx.save();
-      ctx.shadowColor = PALETTE.candle;
-      ctx.shadowBlur = 10;
-      ctx.fillStyle = PALETTE.candle;
+      ctx.globalAlpha = yours ? 1 : 0.28;
+      ctx.shadowColor = yours ? PALETTE.candle : PALETTE.blood;
+      ctx.shadowBlur = yours ? 10 : 0;
+      ctx.fillStyle = yours ? PALETTE.candle : PALETTE.blood;
       ctx.fill();
       ctx.restore();
     } else {
@@ -867,11 +937,19 @@ function drawKarmaPips(ctx: CanvasRenderingContext2D, state: BattleState, nowMs:
 
 function drawEndTurn(ctx: CanvasRenderingContext2D, state: BattleState): void {
   const enabled = state.turn === 'player' && state.actionsTaken >= 1 && state.winner === null;
-  ctx.fillStyle = enabled ? PALETTE.textMain : '#3A3634';
+  ctx.save();
+  if (enabled) {
+    ctx.fillStyle = 'rgba(239,230,216,0.10)';
+    ctx.beginPath();
+    ctx.roundRect(END_TURN.x, END_TURN.y, END_TURN.w, END_TURN.h, 4);
+    ctx.fill();
+  }
+  ctx.fillStyle = enabled ? PALETTE.textMain : PALETTE.textMuted;
   ctx.font = `15px ${SERIF}`;
-  ctx.textAlign = 'right';
+  ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(smallCaps('Завершить ход'), END_TURN.x + END_TURN.w, END_TURN.y + END_TURN.h / 2);
+  ctx.fillText(smallCaps('Завершить ход'), END_TURN.x + END_TURN.w / 2, END_TURN.y + END_TURN.h / 2);
+  ctx.restore();
 }
 
 function drawGraveyards(ctx: CanvasRenderingContext2D, state: BattleState, nowMs: number): void {
@@ -933,6 +1011,106 @@ function drawPoolIndicator(ctx: CanvasRenderingContext2D, state: BattleState): v
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
   ctx.fillText(`карм: ${count}`, cx, cy + 64);
+}
+
+function intentCaption(intent: Intent | undefined): string | null {
+  if (!intent || intent.kind === 'none') return null;
+  if (intent.kind === 'attack') return `Стрелка: ударит клетку ${intent.target.x + 1}:${intent.target.y + 1}.`;
+  if (intent.kind === 'move') return `Стрелка: пойдёт на клетку ${intent.to.x + 1}:${intent.to.y + 1}.`;
+  return 'Стрелка: готовит способность.';
+}
+
+function inspectAt(
+  state: BattleState,
+  cell: Cell,
+  intents: Map<Id, Intent>
+): { title: string; body: string } | null {
+  const creature = getCreatureAt(state.creatures, cell);
+  if (creature) {
+    const plan = creature.side === 'enemy' ? intentCaption(intents.get(creature.id)) : null;
+    return { title: KIND_NAMES[creature.kind], body: plan ? `${KIND_TRAITS[creature.kind]} ${plan}` : KIND_TRAITS[creature.kind] };
+  }
+
+  const cocoon = state.cocoons.find((c) => cellEquals(c.cell, cell));
+  if (cocoon) {
+    const left = Math.max(0, cocoon.expiresOnPlayerTurn - state.playerTurnNumber);
+    return { title: 'Кокон', body: `Не пройти и не ударить. Спадёт через ${left || 1} ход.` };
+  }
+
+  if (ARENAS[state.arena].blocked.some((c) => cellEquals(c, cell))) {
+    return { title: 'Провал', body: 'Через него нельзя ни пройти, ни ударить.' };
+  }
+
+  if (state.arena === 'brazier' && ARENAS.brazier.emberCells.some((c) => cellEquals(c, cell))) {
+    const armed = state.ember.armed && cellEquals(state.ember.armed, cell);
+    return {
+      title: 'Жаровня',
+      body: armed ? 'Вспыхнет в начале твоего следующего хода. Кто стоит здесь — гибнет.' : 'Эта клетка может вспыхнуть. Не стой на ней в начале хода.',
+    };
+  }
+  return null;
+}
+
+function drawEnemyRoster(ctx: CanvasRenderingContext2D, state: BattleState, extra: BattleViewExtra): void {
+  const seen = new Set<string>();
+  const kinds = state.creatures
+    .filter((c) => c.side === 'enemy')
+    .map((c) => c.kind)
+    .filter((kind) => {
+      if (seen.has(kind)) return false;
+      seen.add(kind);
+      return true;
+    });
+  if (kinds.length === 0) return;
+
+  const x = 1000;
+  const top = 238;
+  ctx.fillStyle = PALETTE.textMuted;
+  ctx.font = `12px ${SERIF}`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText(smallCaps('Против тебя'), x, top);
+
+  kinds.forEach((kind, i) => {
+    const y = top + 28 + i * 52;
+    ctx.save();
+    ctx.translate(x + 16, y + 16);
+    ctx.scale(0.42, 0.42);
+    drawCreature(ctx, { kind, side: 'enemy', id: `roster-${kind}`, marks: 0, nowMs: extra.nowMs, still: true });
+    ctx.restore();
+    ctx.fillStyle = PALETTE.textMain;
+    ctx.font = `13px ${SERIF}`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(KIND_NAMES[kind], x + 40, y + 4);
+    ctx.fillStyle = PALETTE.textMuted;
+    ctx.font = `12px ${SANS}`;
+    ctx.fillText(KIND_MARKS[kind], x + 40, y + 22);
+  });
+}
+
+function drawInspect(ctx: CanvasRenderingContext2D, state: BattleState, extra: BattleViewExtra): void {
+  if (!extra.hoverCell || extra.targeting) return;
+  const info = inspectAt(state, extra.hoverCell, extra.intents);
+  if (!info) return;
+  const pos = cellCenter(extra.hoverCell);
+  const cam = extra.animator.camera.transform(extra.nowMs);
+  const screen = screenPointFromBoard(pos.x, pos.y, cam, extra.nowMs);
+  drawTooltip(ctx, info.title, info.body, screen.x, screen.y + 36);
+}
+
+function drawHint(ctx: CanvasRenderingContext2D, text: string): void {
+  ctx.save();
+  ctx.fillStyle = 'rgba(11,10,10,0.72)';
+  ctx.beginPath();
+  ctx.roundRect(HINT_BAR.x, HINT_BAR.y, HINT_BAR.w, HINT_BAR.h, 4);
+  ctx.fill();
+  ctx.fillStyle = PALETTE.textMuted;
+  ctx.font = `13px ${SERIF}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, HINT_BAR.x + HINT_BAR.w / 2, HINT_BAR.y + HINT_BAR.h / 2);
+  ctx.restore();
 }
 
 export function drawVignette(ctx: CanvasRenderingContext2D): void {

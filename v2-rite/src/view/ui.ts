@@ -73,7 +73,7 @@ export function drawCard(ctx: CanvasRenderingContext2D, card: CardId, x: number,
 
   ctx.fillStyle = PALETTE.textMuted;
   ctx.font = `13px ${SANS}`;
-  wrapText(ctx, def.effect, CARD_W / 2, CARD_H - 72, CARD_W - 24, 16, 3);
+  wrapText(ctx, def.effect, CARD_W / 2, CARD_H - 80, CARD_W - 28, 15, 4);
   ctx.restore();
 }
 
@@ -272,24 +272,49 @@ export function drawRelic(ctx: CanvasRenderingContext2D, relic: RelicId, x: numb
   ctx.restore();
 }
 
-/** Всплывающая подсказка названия и эффекта (4.2). */
+/** Всплывающая подсказка названия и эффекта (4.2). Тело переносится. */
 export function drawTooltip(ctx: CanvasRenderingContext2D, title: string, body: string, x: number, y: number): void {
   ctx.save();
-  ctx.font = `13px ${SANS}`;
-  const w = Math.max(ctx.measureText(title).width, ctx.measureText(body).width) + 24;
+  ctx.font = `12px ${SANS}`;
+  const maxInner = 248;
+  const words = body.split(' ');
+  const lines: string[] = [];
+  let line = '';
+  for (const word of words) {
+    const test = line ? `${line} ${word}` : word;
+    if (ctx.measureText(test).width > maxInner && line) {
+      lines.push(line);
+      line = word;
+    } else line = test;
+  }
+  if (line) lines.push(line);
+
+  ctx.font = `13px ${SERIF}`;
+  const titleW = ctx.measureText(smallCaps(title)).width;
+  const w = Math.min(280, Math.max(titleW, ...lines.map((l) => {
+    ctx.font = `12px ${SANS}`;
+    return ctx.measureText(l).width;
+  })) + 24);
+  const h = 28 + lines.length * 16;
   const clampedX = Math.min(Math.max(x, w / 2 + 8), 1280 - w / 2 - 8);
-  ctx.fillStyle = 'rgba(11,10,10,0.92)';
+  let top = y;
+  if (top + h > 712) top = y - h - 16;
+
+  ctx.fillStyle = 'rgba(11,10,10,0.94)';
   ctx.beginPath();
-  ctx.roundRect(clampedX - w / 2, y, w, 46, 4);
+  ctx.roundRect(clampedX - w / 2, top, w, h, 4);
   ctx.fill();
+  ctx.strokeStyle = 'rgba(239,230,216,0.12)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
   ctx.fillStyle = PALETTE.textMain;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
   ctx.font = `13px ${SERIF}`;
-  ctx.fillText(smallCaps(title), clampedX, y + 8);
+  ctx.fillText(smallCaps(title), clampedX, top + 7);
   ctx.fillStyle = PALETTE.textMuted;
   ctx.font = `12px ${SANS}`;
-  ctx.fillText(body, clampedX, y + 26);
+  lines.forEach((l, i) => ctx.fillText(l, clampedX, top + 24 + i * 16));
   ctx.restore();
 }
 

@@ -1,6 +1,6 @@
 import { blockedCells, directionsFor, getCreatureAt, getCreatureById, walkDirection } from './board';
 import { RANK_OF } from './creatures';
-import { acolyteMoveRange } from './relics';
+import { wardenMoveRange } from './relics';
 import type { BattleState, Cell, CellKey, Creature, Id, Side } from './types';
 
 export function canCreatureAct(state: BattleState, creature: Creature): boolean {
@@ -19,20 +19,19 @@ function isDepressed(state: BattleState, creature: Creature): boolean {
 function rangeFor(state: BattleState, creature: Creature, mode: 'move' | 'attack'): number {
   if (isDepressed(state, creature)) return 1;
   const rank = RANK_OF[creature.kind];
-  if (rank === 'triangle') {
-    // Сандалии пилигрима: только движение и только у Послушников.
-    return mode === 'move' && creature.kind === 'acolyte' ? acolyteMoveRange(state.relics) : 1;
+  if (rank === 'triangle') return 1;
+  if (rank === 'square') {
+    return mode === 'move' && creature.kind === 'warden' ? wardenMoveRange(state.relics) : 3;
   }
-  return rank === 'square' ? 3 : 5;
+  return 5;
 }
 
 /**
- * Панцирь (7.3): атака существа-треугольника по нему нелегальна. Черта
- * сохраняется при смене стороны. Исключение — Кающийся: его атака пробивает
- * Панциря, несмотря на ранг.
+ * Панцирь: бронированный квадрат. Бьёт только круг (Иерофант, Круг, босс).
+ * Черта сохраняется при смене стороны.
  */
 function canBeAttackedBy(target: Creature, attacker: Creature): boolean {
-  if (target.kind === 'shell' && RANK_OF[attacker.kind] === 'triangle' && attacker.kind !== 'penitent') return false;
+  if (target.kind === 'shell' && RANK_OF[attacker.kind] !== 'circle') return false;
   return true;
 }
 

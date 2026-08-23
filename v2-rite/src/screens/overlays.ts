@@ -210,7 +210,7 @@ export function renderOverlay(
       title('Алтарь', 170);
       const labels: { choice: AltarChoice; name: string; line: string }[] = [
         { choice: 'ordain', name: 'Посвятить', line: 'Одно существо поднимается на ранг выше' },
-        { choice: 'raise', name: 'Поднять павшего', line: 'Погибший возвращается в орден Послушником' },
+        { choice: 'raise', name: 'Поднять павшего', line: 'Погибший возвращается Стражем' },
         { choice: 'knowledge', name: 'Взять знание', line: 'Одна Карта Кармы из невзятых, на выбор из двух' },
       ];
       const rects = altarRects();
