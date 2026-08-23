@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Jedibo</title>
+    <style>
+      html, body {
+        margin: 0;
+        min-height: 100%;
+        background: #0B0A0A;
+        color: #EFE6D8;
+        font-family: Georgia, "Times New Roman", serif;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 48px 24px;
+        box-sizing: border-box;
+      }
+      h1 {
+        margin: 0 0 8px;
+        letter-spacing: 0.28em;
+        font-weight: 400;
+        font-size: 42px;
+        text-transform: uppercase;
+      }
+      p {
+        margin: 0 0 40px;
+        color: #7A7370;
+        letter-spacing: 0.08em;
+      }
+      .games {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+        justify-content: center;
+        max-width: 820px;
+      }
+      a {
+        width: 320px;
+        padding: 28px 24px 24px;
+        text-decoration: none;
+        color: inherit;
+        border: 1px solid rgba(239, 230, 216, 0.18);
+        background: #14120F;
+      }
+      a:hover {
+        border-color: #D9A441;
+      }
+      a strong {
+        display: block;
+        font-size: 22px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        margin-bottom: 10px;
+      }
+      a span {
+        display: block;
+        color: #7A7370;
+        font-size: 14px;
+        line-height: 1.45;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Jedibo</h1>
+    <p>две игры из одного репозитория</p>
+    <div class="games">
+      <a href="./jedibo/">
+        <strong>Jedibo</strong>
+        <span>Первый прототип. Один файл, карты кармы, фигуры на клетке.</span>
+      </a>
+      <a href="./rite/">
+        <strong>Обряд</strong>
+        <span>RITE. Роглайт с лестницей рангов, пиром и проповедником.</span>
+      </a>
+    </div>
+  </body>
+</html>

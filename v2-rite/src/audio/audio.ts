@@ -333,7 +333,7 @@ class AudioLayer {
     if (this.loading.has(name)) return null;
     this.loading.add(name);
     try {
-      const res = await fetch(`/assets/audio/${name}.mp3`);
+      const res = await fetch(`${import.meta.env.BASE_URL}assets/audio/${name}.mp3`);
       if (!res.ok) throw new Error('missing');
       const type = res.headers.get('content-type') ?? '';
       if (type.includes('text/html')) throw new Error('missing');
