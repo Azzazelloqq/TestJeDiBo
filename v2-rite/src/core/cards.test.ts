@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { applyEndTurn } from './battle';
-import { discardInapplicable, isCardApplicable, playBarrage, playBlitzkrieg, playDeathline, playSpy } from './cards';
+import { applyEndTurn, applyMove } from './battle';
+import { discardInapplicable, isCardApplicable, playBarrage, playBlitzkrieg, playDeathline, playResurrection, playSpy } from './cards';
 import { getLegalMoves } from './rules';
 import { c, has, makeState, seqRng } from './testHelpers';
 import type { KarmaState } from './types';
@@ -62,6 +62,24 @@ describe('Воскрешение (9.2)', () => {
     });
     expect(isCardApplicable(state, 'resurrection')).toBe(true);
   });
+
+  it('возвращает павшего в зону ордена, и он может ходить', () => {
+    const a = c('player', 'warden', 4, 4);
+    const dead = c('player', 'acolyte', 3, 3);
+    const foe = c('enemy', 'brute', 2, 2);
+    const state = makeState([a, foe], {
+      karma: karmaWith('resurrection'),
+      graveyard: { player: [dead], enemy: [] },
+    });
+    const { state: next, events } = playResurrection(state, dead.id, () => 0.5);
+    const revived = next.creatures.find((cr) => cr.id === dead.id)!;
+    expect(revived.side).toBe('player');
+    expect(revived.kind).toBe('acolyte');
+    expect(revived.acted).toBe(false);
+    expect(next.graveyard.player).toHaveLength(0);
+    expect(events.some((e) => e.t === 'cardPlayed' && e.card === 'resurrection')).toBe(true);
+    expect(getLegalMoves(next, dead.id).length).toBeGreaterThan(0);
+  });
 });
 
 describe('Шпион (9.2)', () => {
@@ -74,12 +92,42 @@ describe('Шпион (9.2)', () => {
     const { state: next, events } = playSpy(state, foe.id, () => 0.5);
     const captured = next.creatures.find((cr) => cr.id === foe.id)!;
     expect(captured.side).toBe('player');
+    expect(captured.kind).toBe('warden');
     expect(events.some((e) => e.t === 'captured' && e.id === foe.id)).toBe(true);
 
     // Квадрат теперь ходит вперёд ордена: к y=0, не назад.
     const moves = getLegalMoves(next, foe.id);
     expect(has(moves, 4, 3)).toBe(true);
     expect(has(moves, 4, 5)).toBe(false);
+  });
+
+  it('на линии повышения сразу становится фигурой ордена рангом выше', () => {
+    const a = c('player', 'warden', 0, 7);
+    const larva = c('enemy', 'larva', 3, 0);
+    const brute = c('enemy', 'brute', 5, 0);
+    const spare = c('enemy', 'larva', 7, 1);
+
+    const fromLarva = playSpy(makeState([a, larva, spare], { karma: karmaWith('spy') }), larva.id, () => 0.5);
+    const ordainedLarva = fromLarva.state.creatures.find((cr) => cr.id === larva.id)!;
+    expect(ordainedLarva.kind).toBe('warden');
+    expect(fromLarva.events.some((e) => e.t === 'ordained' && e.id === larva.id)).toBe(true);
+
+    const fromBrute = playSpy(makeState([a, brute, spare], { karma: karmaWith('spy') }), brute.id, () => 0.5);
+    const ordainedBrute = fromBrute.state.creatures.find((cr) => cr.id === brute.id)!;
+    expect(ordainedBrute.kind).toBe('hierophant');
+    expect(fromBrute.events.some((e) => e.t === 'ordained' && e.id === brute.id)).toBe(true);
+  });
+
+  it('после захвата доходит до линии и повышается как орден', () => {
+    const a = c('player', 'warden', 0, 7);
+    const foe = c('enemy', 'larva', 4, 1);
+    const spare = c('enemy', 'brute', 7, 6);
+    const captured = playSpy(makeState([a, foe, spare], { karma: karmaWith('spy') }), foe.id, () => 0.5);
+    expect(captured.state.creatures.find((cr) => cr.id === foe.id)?.kind).toBe('acolyte');
+
+    const { state: next, events } = applyMove(captured.state, foe.id, { x: 4, y: 0 }, () => 0.5);
+    expect(next.creatures.find((cr) => cr.id === foe.id)?.kind).toBe('warden');
+    expect(events.some((e) => e.t === 'ordained' && e.id === foe.id)).toBe(true);
   });
 });
 

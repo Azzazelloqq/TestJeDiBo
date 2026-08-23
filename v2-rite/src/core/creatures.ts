@@ -33,9 +33,24 @@ export function creatureValue(kind: CreatureKind): number {
 
 /** Посвящение ордена: треугольник → квадрат → круг. */
 export function ordainedPlayerKind(kind: CreatureKind): PlayerKind | null {
-  if (kind === 'acolyte') return 'warden';
-  if (kind === 'warden') return 'hierophant';
+  if (kind === 'acolyte' || kind === 'larva') return 'warden';
+  if (kind === 'warden' || kind === 'brute') return 'hierophant';
   return null;
+}
+
+/** Шпион: тварь принимает облик ордена того же ранга. */
+export function toPlayerKind(kind: CreatureKind): CreatureKind {
+  switch (kind) {
+    case 'larva':
+      return 'acolyte';
+    case 'brute':
+      return 'warden';
+    case 'eye':
+    case 'preacher':
+      return 'hierophant';
+    default:
+      return kind;
+  }
 }
 
 /** Твари посвящаются зеркально. Панцирь и босс — нет. */

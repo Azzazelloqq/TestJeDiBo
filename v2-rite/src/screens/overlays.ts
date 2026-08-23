@@ -39,9 +39,16 @@ function cardRects(count: number): Rect[] {
 }
 
 function relicRects(count: number): Rect[] {
-  const gap = 180;
-  const startX = CANVAS_W / 2 - ((count - 1) * gap) / 2;
-  return Array.from({ length: count }, (_, i) => ({ x: startX + i * gap - 50, y: 280, w: 100, h: 140 }));
+  const colW = 360;
+  const gap = 48;
+  const totalW = count * colW + Math.max(0, count - 1) * gap;
+  const startX = CANVAS_W / 2 - totalW / 2;
+  return Array.from({ length: count }, (_, i) => ({
+    x: startX + i * (colW + gap),
+    y: 230,
+    w: colW,
+    h: 300,
+  }));
 }
 
 function eventOptionRects(): [Rect, Rect] {
@@ -115,15 +122,20 @@ export function renderOverlay(
         const r = rects[i];
         const cx = r.x + r.w / 2;
         const isHover = hover !== null && inRect(r, hover.x, hover.y);
-        drawRelic(ctx, relic, cx, r.y + 40, 34, isHover);
+        ctx.save();
+        ctx.strokeStyle = isHover ? PALETTE.candle : 'rgba(239,230,216,0.16)';
+        ctx.lineWidth = isHover ? 1.5 : 1;
+        ctx.beginPath();
+        ctx.roundRect(r.x, r.y, r.w, r.h, 6);
+        ctx.stroke();
+        ctx.restore();
+        drawRelic(ctx, relic, cx, r.y + 56, 34, isHover);
         ctx.fillStyle = PALETTE.textMain;
-        ctx.font = `15px ${SERIF}`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'top';
-        ctx.fillText(smallCaps(relicName(relic)), cx, r.y + 90);
+        ctx.font = `16px ${SERIF}`;
+        wrapText(ctx, relicName(relic).toUpperCase(), cx, r.y + 108, r.w - 40, 20, 2);
         ctx.fillStyle = PALETTE.textMuted;
-        ctx.font = `12px ${SANS}`;
-        wrapText(ctx, relicEffect(relic), cx, r.y + 112, 220, 15, 3);
+        ctx.font = `13px ${SANS}`;
+        wrapText(ctx, relicEffect(relic), cx, r.y + 160, r.w - 48, 18, 4);
       });
       break;
     }

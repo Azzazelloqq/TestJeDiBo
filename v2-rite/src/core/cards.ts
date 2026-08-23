@@ -1,5 +1,6 @@
 import { destroyCreatures, endTurnAndAdvance, checkWinLoss, createCreature, resolveOrdinations, type Result } from './battle';
 import { blockedCells, cellKey, findPlacementSlot, getCreatureById } from './board';
+import { toPlayerKind } from './creatures';
 import { type BattleEvent, type BattleState, type CardId, type Cell, type Id } from './types';
 
 export interface CardDef {
@@ -50,7 +51,7 @@ export const CARDS: Record<CardId, CardDef> = {
   resurrection: {
     id: 'resurrection',
     name: 'Воскрешение',
-    effect: 'Одно существо с кладбища этого боя возвращается и может действовать в этот же ход.',
+    effect: 'Кликни павшего слева от доски. Он возвращается и может ходить сразу.',
     mode: 'instant',
     endsTurn: false,
     targeting: 'graveyard',
@@ -143,6 +144,7 @@ export function playSpy(state: BattleState, targetId: Id, rng: () => number = Ma
   next.karma.pendingCard = null;
   const creature = getCreatureById(next.creatures, targetId)!;
   creature.side = 'player';
+  creature.kind = toPlayerKind(creature.kind);
   creature.acted = false;
   const events: BattleEvent[] = [
     { t: 'cardPlayed', card: 'spy', payload: { id: targetId } },

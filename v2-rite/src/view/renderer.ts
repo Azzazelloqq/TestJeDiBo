@@ -62,18 +62,18 @@ export function pointInPendingCard(x: number, y: number): boolean {
   return x >= PENDING_HIT.x && x <= PENDING_HIT.x + PENDING_HIT.w && y >= PENDING_HIT.y && y <= PENDING_HIT.y + PENDING_HIT.h;
 }
 
-const GRAVE_SPACING = 34;
+const GRAVE_SPACING = 52;
 
 function graveyardPositions(state: BattleState): { id: Id; x: number; y: number }[] {
   const out: { id: Id; x: number; y: number }[] = [];
-  state.graveyard.player.forEach((c, i) => out.push({ id: c.id, x: 335, y: BOARD_ORIGIN.y + BOARD_PX - 20 - i * GRAVE_SPACING }));
-  state.graveyard.enemy.forEach((c, i) => out.push({ id: c.id, x: 945, y: BOARD_ORIGIN.y + 20 + i * GRAVE_SPACING }));
+  state.graveyard.player.forEach((c, i) => out.push({ id: c.id, x: 300, y: BOARD_ORIGIN.y + BOARD_PX - 36 - i * GRAVE_SPACING }));
+  state.graveyard.enemy.forEach((c, i) => out.push({ id: c.id, x: 960, y: BOARD_ORIGIN.y + 36 + i * GRAVE_SPACING }));
   return out;
 }
 
 export function graveyardCreatureAt(state: BattleState, x: number, y: number): Id | null {
   for (const p of graveyardPositions(state)) {
-    if (Math.hypot(p.x - x, p.y - y) <= 17) return p.id;
+    if (Math.hypot(p.x - x, p.y - y) <= 36) return p.id;
   }
   return null;
 }
@@ -179,7 +179,7 @@ export function renderBattle(ctx: CanvasRenderingContext2D, state: BattleState, 
   if (!sceneActive) {
     drawSelection(ctx, extra);
     drawIntentTargets(ctx, extra, nowMs);
-    drawCardAim(ctx, extra, nowMs);
+    drawCardAim(ctx, state, extra, nowMs);
     drawFeast(ctx, state, extra, nowMs);
   }
   drawCocoons(ctx, state, nowMs);
@@ -539,7 +539,23 @@ function drawIntentTargets(ctx: CanvasRenderingContext2D, extra: BattleViewExtra
   }
 }
 
-function drawCardAim(ctx: CanvasRenderingContext2D, extra: BattleViewExtra, nowMs: number): void {
+function drawCardAim(ctx: CanvasRenderingContext2D, state: BattleState, extra: BattleViewExtra, nowMs: number): void {
+  if (extra.targeting === 'spy') {
+    const pulse = 0.35 + 0.35 * (0.5 + 0.5 * Math.sin(nowMs / 160));
+    for (const creature of state.creatures) {
+      if (creature.side !== 'enemy') continue;
+      const { x, y } = cellTopLeft(creature.cell);
+      ctx.save();
+      ctx.strokeStyle = PALETTE.karma;
+      ctx.globalAlpha = pulse;
+      ctx.lineWidth = 3;
+      ctx.shadowColor = PALETTE.karma;
+      ctx.shadowBlur = 14;
+      ctx.strokeRect(x + 2, y + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+      ctx.restore();
+    }
+    return;
+  }
   if (extra.targeting === 'deathline') {
     const col = extra.hoverCell?.x;
     if (col === undefined) return;
@@ -871,11 +887,11 @@ function drawBossScene(ctx: CanvasRenderingContext2D, scene: { progress: number;
 // ---------- HUD (11.6) ----------
 
 function drawHud(ctx: CanvasRenderingContext2D, state: BattleState, extra: BattleViewExtra): void {
-  drawTurnBanner(ctx, state);
+  drawTurnBanner(ctx, state, extra.targeting);
   drawApTrack(ctx, state);
   drawKarmaPips(ctx, state, extra.nowMs);
   drawEndTurn(ctx, state);
-  drawGraveyards(ctx, state, extra.nowMs);
+  drawGraveyards(ctx, state, extra);
   drawRelicRow(ctx, state, extra);
   drawPoolIndicator(ctx, state);
 
@@ -914,27 +930,12 @@ function drawHud(ctx: CanvasRenderingContext2D, state: BattleState, extra: Battl
     ctx.textBaseline = 'top';
     ctx.fillText(smallCaps(state.karma.blitzkrieg.creatureId ? `Блицкриг · ${state.karma.blitzkrieg.actionsLeft}` : 'Блицкриг ждёт'), 40, 120);
   }
-  if (extra.discardMessage) {
+  if (extra.discardMessage && !extra.targeting) {
     ctx.fillStyle = PALETTE.textMain;
     ctx.font = `16px ${SERIF}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(extra.discardMessage, CANVAS_W / 2, 70);
-  }
-  if (extra.targeting) {
-    ctx.fillStyle = PALETTE.textMain;
-    ctx.font = `14px ${SANS}`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    const aim =
-      extra.targeting === 'spy'
-        ? 'Выбери тварь'
-        : extra.targeting === 'resurrection'
-          ? 'Выбери существо на кладбище'
-          : extra.targeting === 'deathline'
-            ? 'Кликни столбец Линии смерти'
-            : 'Нажми карту ещё раз — подтвердить обстрел';
-    ctx.fillText(aim, CANVAS_W / 2, 70);
   }
   const combo = extra.animator.getComboFlash(extra.nowMs);
   if (combo) {
@@ -951,14 +952,30 @@ function drawHud(ctx: CanvasRenderingContext2D, state: BattleState, extra: Battl
   }
 }
 
-function drawTurnBanner(ctx: CanvasRenderingContext2D, state: BattleState): void {
+function aimText(targeting: BattleViewExtra['targeting']): string | null {
+  switch (targeting) {
+    case 'spy':
+      return 'Выбери тварь — она перейдёт в орден';
+    case 'resurrection':
+      return 'Кликни павшего слева от доски';
+    case 'deathline':
+      return 'Кликни столбец Линии смерти';
+    case 'barrage':
+      return 'Нажми карту ещё раз — подтвердить. Esc — отмена';
+    default:
+      return null;
+  }
+}
+
+function drawTurnBanner(ctx: CanvasRenderingContext2D, state: BattleState, targeting: BattleViewExtra['targeting']): void {
+  const aim = aimText(targeting);
   const yours = state.turn === 'player';
-  ctx.fillStyle = yours ? PALETTE.textMain : PALETTE.blood;
+  ctx.fillStyle = aim ? PALETTE.karma : yours ? PALETTE.textMain : PALETTE.blood;
   ctx.font = `15px ${SERIF}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(yours ? smallCaps('Твой ход — кликни фигуру') : smallCaps('Ход противника'), CANVAS_W / 2, 52);
-  if (state.feast) {
+  ctx.fillText(aim ? smallCaps(aim) : yours ? smallCaps('Твой ход — кликни фигуру') : smallCaps('Ход противника'), CANVAS_W / 2, 52);
+  if (state.feast && !aim) {
     ctx.fillStyle = PALETTE.candle;
     ctx.font = `22px ${SERIF}`;
     ctx.fillText(smallCaps('Пир — бей ещё'), CANVAS_W / 2, 84);
@@ -1028,20 +1045,93 @@ function drawEndTurn(ctx: CanvasRenderingContext2D, state: BattleState): void {
   ctx.restore();
 }
 
-function drawGraveyards(ctx: CanvasRenderingContext2D, state: BattleState, nowMs: number): void {
-  for (const side of ['player', 'enemy'] as const) {
-    const list = state.graveyard[side];
-    list.forEach((creature, i) => {
+function drawGraveyards(ctx: CanvasRenderingContext2D, state: BattleState, extra: BattleViewExtra): void {
+  const aiming = extra.targeting === 'resurrection';
+  const playerGraves = state.graveyard.player
+    .map((creature) => {
       const pos = graveyardPositions(state).find((p) => p.id === creature.id);
-      if (!pos) return;
+      return pos ? { creature, pos } : null;
+    })
+    .filter((item): item is { creature: Creature; pos: { id: Id; x: number; y: number } } => item !== null);
+
+  if (aiming && playerGraves.length > 0) {
+    const xs = playerGraves.map((g) => g.pos.x);
+    const ys = playerGraves.map((g) => g.pos.y);
+    const left = Math.min(...xs) - 48;
+    const right = Math.max(...xs) + 48;
+    const top = Math.min(...ys) - 56;
+    const bottom = Math.max(...ys) + 52;
+    const pulse = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(extra.nowMs / 160));
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(0, 90, CANVAS_W, CANVAS_H - 90);
+    ctx.clearRect(left, top, right - left, bottom - top);
+    ctx.restore();
+
+    ctx.save();
+    ctx.shadowColor = PALETTE.karma;
+    ctx.shadowBlur = 22;
+    ctx.strokeStyle = PALETTE.karma;
+    ctx.lineWidth = 2.5;
+    ctx.globalAlpha = pulse;
+    ctx.beginPath();
+    ctx.roundRect(left, top, right - left, bottom - top, 8);
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.fillStyle = PALETTE.karma;
+    ctx.font = `16px ${SERIF}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(smallCaps('Кликни павшего'), (left + right) / 2, top - 8);
+
+    ctx.fillStyle = PALETTE.karma;
+    ctx.beginPath();
+    ctx.moveTo((left + right) / 2, top - 4);
+    ctx.lineTo((left + right) / 2 - 7, top + 8);
+    ctx.lineTo((left + right) / 2 + 7, top + 8);
+    ctx.closePath();
+    ctx.fill();
+  } else if (playerGraves.length > 0) {
+    const last = playerGraves[0];
+    ctx.fillStyle = PALETTE.textMuted;
+    ctx.font = `12px ${SERIF}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(smallCaps('Павшие'), last.pos.x, last.pos.y + 24);
+  }
+
+  for (const side of ['player', 'enemy'] as const) {
+    for (const creature of state.graveyard[side]) {
+      const pos = graveyardPositions(state).find((p) => p.id === creature.id);
+      if (!pos) continue;
+      const lit = aiming && side === 'player';
+      const pulse = lit ? 0.7 + 0.3 * Math.sin(extra.nowMs / 160) : 1;
       ctx.save();
       ctx.translate(pos.x, pos.y);
-      ctx.scale(0.5, 0.5);
-      ctx.globalAlpha = 0.65;
-      drawCreature(ctx, { kind: creature.kind, side, id: creature.id, marks: creature.marks, nowMs, still: true });
+      if (lit) {
+        ctx.shadowColor = PALETTE.karma;
+        ctx.shadowBlur = 18;
+        ctx.strokeStyle = PALETTE.karma;
+        ctx.lineWidth = 3;
+        ctx.globalAlpha = pulse;
+        ctx.beginPath();
+        ctx.arc(0, 0, 26, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.scale(lit ? 0.85 : 0.5, lit ? 0.85 : 0.5);
+      ctx.globalAlpha = lit ? 1 : 0.65;
+      drawCreature(ctx, {
+        kind: creature.kind,
+        side,
+        id: creature.id,
+        marks: creature.marks,
+        nowMs: extra.nowMs,
+        still: true,
+      });
       ctx.restore();
-      void i;
-    });
+    }
   }
 }
 

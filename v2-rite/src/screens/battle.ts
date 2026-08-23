@@ -227,6 +227,10 @@ export class BattleScreen {
         audio.sfx('revive');
         return;
       }
+      this.denyMsg = 'Кликни павшего слева от доски';
+      this.denyMsgUntil = performance.now() + 1600;
+      audio.sfx('ui_deny');
+      return;
     }
 
     const cell = this.boardCellAt(x, y);
@@ -420,14 +424,10 @@ export class BattleScreen {
     switch (card) {
       case 'deathline':
         this.targeting = 'deathline';
-        this.denyMsg = 'Выбери столбец — кликни любую клетку в нём';
-        this.denyMsgUntil = performance.now() + 4000;
         break;
       case 'barrage':
         this.targeting = 'barrage';
         this.barragePreview = pickBarrageCells();
-        this.denyMsg = 'Клетки вспыхнули. Нажми карту ещё раз. Esc — отмена';
-        this.denyMsgUntil = performance.now() + 5000;
         break;
       case 'blitzkrieg':
         this.commit(playBlitzkrieg(battle));
@@ -435,13 +435,9 @@ export class BattleScreen {
         break;
       case 'spy':
         this.targeting = 'spy';
-        this.denyMsg = 'Выбери тварь — она перейдёт в орден';
-        this.denyMsgUntil = performance.now() + 2400;
         break;
       case 'resurrection':
         this.targeting = 'resurrection';
-        this.denyMsg = 'Выбери павшего слева от арены';
-        this.denyMsgUntil = performance.now() + 2400;
         break;
     }
   }
@@ -504,9 +500,11 @@ export class BattleScreen {
       spawnFx: introFx,
       hint: battle.feast
         ? 'ПИР — эта фигура достаёт ещё. Бей выделенную тварь'
-        : this.hintUntilActions > 0 && nowMs - this.shownAtMs > this.introDurationMs()
-          ? 'Кликни свою фигуру, потом клетку. Стрелки над тварями — куда они пойдут'
-          : null,
+        : this.targeting
+          ? null
+          : this.hintUntilActions > 0 && nowMs - this.shownAtMs > this.introDurationMs()
+            ? 'Кликни свою фигуру, потом клетку. Стрелки над тварями — куда они пойдут'
+            : null,
     };
     renderBattle(ctx, battle, extra);
   }

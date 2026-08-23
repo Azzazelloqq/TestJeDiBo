@@ -23,15 +23,37 @@ export function wrapText(
   const words = text.split(' ');
   const lines: string[] = [];
   let line = '';
+  const fits = (value: string): boolean => ctx.measureText(value).width <= maxWidth;
   for (const word of words) {
     const test = line ? `${line} ${word}` : word;
-    if (ctx.measureText(test).width > maxWidth && line) {
-      lines.push(line);
-      line = word;
-      if (lines.length >= maxLines) break;
-    } else {
+    if (fits(test)) {
       line = test;
+      continue;
     }
+    if (line) {
+      lines.push(line);
+      if (lines.length >= maxLines) {
+        line = '';
+        break;
+      }
+    }
+    if (fits(word)) {
+      line = word;
+      continue;
+    }
+    let chunk = '';
+    for (const ch of word) {
+      const next = chunk + ch;
+      if (chunk && !fits(next)) {
+        lines.push(chunk);
+        chunk = ch;
+        if (lines.length >= maxLines) break;
+      } else {
+        chunk = next;
+      }
+    }
+    line = lines.length >= maxLines ? '' : chunk;
+    if (lines.length >= maxLines) break;
   }
   if (line && lines.length < maxLines) lines.push(line);
   ctx.save();
