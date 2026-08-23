@@ -94,7 +94,7 @@ export function drawAvatars(
   player: AvatarPose,
   enemy: AvatarPose | null,
   playerAlive: number,
-  _boss: boolean
+  boss: boolean
 ): void {
   const playerMood = resolveMood(player, nowMs, playerAlive <= 2 ? 'anger' : 'idle');
   const enemyMood = enemy ? resolveMood(enemy, nowMs, 'idle') : 'idle';
@@ -108,6 +108,7 @@ export function drawAvatars(
     vis: playerVis,
     side: 'player',
     label: 'Ты',
+    boss: false,
   });
   drawPortrait(ctx, {
     x: 1162,
@@ -116,7 +117,8 @@ export function drawAvatars(
     mood: enemyMood,
     vis: enemyVis,
     side: 'enemy',
-    label: 'Противник',
+    label: boss ? 'Проповедник' : 'Противник',
+    boss,
   });
 }
 
@@ -128,6 +130,7 @@ interface PortraitOpts {
   vis: Visual;
   side: 'player' | 'enemy';
   label: string;
+  boss: boolean;
 }
 
 function drawPortrait(ctx: CanvasRenderingContext2D, o: PortraitOpts): void {
@@ -141,8 +144,8 @@ function drawPortrait(ctx: CanvasRenderingContext2D, o: PortraitOpts): void {
   ctx.translate(o.x + shakeX + v.lean * 7, o.y + shakeY - v.lift * 10 + breathe * 0.35);
   ctx.rotate(v.lean * 0.07 - v.lift * 0.05);
 
-  drawAura(ctx, o.side, v, t);
-  drawAsh(ctx, v, t, o.side);
+  drawAura(ctx, o.side, v, t, o.boss);
+  drawAsh(ctx, v, t, o.side, o.boss);
 
   ctx.save();
   if (v.shatter > 0.08) {
@@ -152,6 +155,7 @@ function drawPortrait(ctx: CanvasRenderingContext2D, o: PortraitOpts): void {
   }
 
   if (o.side === 'player') drawPlayerMask(ctx, v, t);
+  else if (o.boss) drawBossMask(ctx, v, t);
   else drawEnemyMask(ctx, v, t);
 
   ctx.restore();
@@ -162,6 +166,7 @@ function drawPortrait(ctx: CanvasRenderingContext2D, o: PortraitOpts): void {
     ctx.translate(7 * v.shatter, 4 * v.shatter);
     ctx.rotate(0.12 * v.shatter);
     if (o.side === 'player') drawPlayerMask(ctx, v, t);
+    else if (o.boss) drawBossMask(ctx, v, t);
     else drawEnemyMask(ctx, v, t);
     ctx.restore();
   }
@@ -170,7 +175,7 @@ function drawPortrait(ctx: CanvasRenderingContext2D, o: PortraitOpts): void {
 
   ctx.save();
   ctx.globalAlpha = 0.85 - v.ash * 0.4;
-  ctx.fillStyle = o.side === 'player' ? '#EFE6D8' : '#C4B8A8';
+  ctx.fillStyle = o.side === 'player' ? '#EFE6D8' : o.boss ? '#F0E6D4' : '#C4B8A8';
   ctx.font = `13px ${SERIF}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
@@ -178,14 +183,25 @@ function drawPortrait(ctx: CanvasRenderingContext2D, o: PortraitOpts): void {
   ctx.restore();
 }
 
-function drawAura(ctx: CanvasRenderingContext2D, side: 'player' | 'enemy', v: Visual, t: number): void {
+function drawAura(
+  ctx: CanvasRenderingContext2D,
+  side: 'player' | 'enemy',
+  v: Visual,
+  t: number,
+  boss: boolean
+): void {
   const pulse = 0.7 + 0.3 * Math.sin(t * 5);
-  const r = 46 + v.glow * 10 + v.consume * 6 * pulse;
+  const r = 46 + v.glow * 10 + v.consume * 6 * pulse + (boss ? 8 : 0);
   const g = ctx.createRadialGradient(0, 4, 8, 0, 4, r);
   if (side === 'player') {
     g.addColorStop(0, `rgba(239,230,216,${0.08 + v.glow * 0.22 + v.consume * 0.18})`);
     g.addColorStop(0.55, `rgba(217,164,65,${0.04 + v.glow * 0.12})`);
     g.addColorStop(1, 'rgba(217,164,65,0)');
+  } else if (boss) {
+    g.addColorStop(0, `rgba(240,230,212,${0.22 + v.glow * 0.28 + v.consume * 0.18})`);
+    g.addColorStop(0.45, `rgba(217,164,65,${0.16 + v.glow * 0.18})`);
+    g.addColorStop(0.75, `rgba(140,28,19,${0.14 + v.glow * 0.12})`);
+    g.addColorStop(1, 'rgba(140,28,19,0)');
   } else {
     g.addColorStop(0, `rgba(255,255,255,${0.05 + v.glow * 0.2 + v.consume * 0.16})`);
     g.addColorStop(0.5, `rgba(140,28,19,${0.06 + v.glow * 0.14})`);
@@ -197,7 +213,13 @@ function drawAura(ctx: CanvasRenderingContext2D, side: 'player' | 'enemy', v: Vi
   ctx.fill();
 }
 
-function drawAsh(ctx: CanvasRenderingContext2D, v: Visual, t: number, side: 'player' | 'enemy'): void {
+function drawAsh(
+  ctx: CanvasRenderingContext2D,
+  v: Visual,
+  t: number,
+  side: 'player' | 'enemy',
+  boss: boolean
+): void {
   if (v.ash < 0.04) return;
   ctx.save();
   ctx.globalAlpha = v.ash * 0.55;
@@ -205,7 +227,7 @@ function drawAsh(ctx: CanvasRenderingContext2D, v: Visual, t: number, side: 'pla
     const a = t * (0.7 + i * 0.11) + i * 1.7;
     const x = Math.sin(a) * (10 + i * 3);
     const y = ((t * (12 + i * 4) + i * 9) % 36) - 8;
-    ctx.fillStyle = side === 'player' ? 'rgba(90,86,80,0.7)' : 'rgba(20,16,14,0.85)';
+    ctx.fillStyle = side === 'player' ? 'rgba(90,86,80,0.7)' : boss ? 'rgba(180,140,90,0.7)' : 'rgba(20,16,14,0.85)';
     ctx.beginPath();
     ctx.arc(x, y, 1.1 + (i % 3) * 0.5, 0, Math.PI * 2);
     ctx.fill();
@@ -351,6 +373,120 @@ function enemySpike(ctx: CanvasRenderingContext2D, dir: 1 | -1, ox: number, oy: 
   ctx.quadraticCurveTo(dir * (ox + 10), oy - lift * 0.4, dir * (ox + len), oy - lift);
   ctx.quadraticCurveTo(dir * (ox + 8), oy - 2, dir * ox, oy + 3);
   ctx.closePath();
+}
+
+function bossMitrePath(ctx: CanvasRenderingContext2D): void {
+  ctx.beginPath();
+  ctx.moveTo(0, -78);
+  ctx.bezierCurveTo(16, -70, 22, -48, 18, -28);
+  ctx.lineTo(10, -20);
+  ctx.lineTo(0, -28);
+  ctx.lineTo(-10, -20);
+  ctx.lineTo(-18, -28);
+  ctx.bezierCurveTo(-22, -48, -16, -70, 0, -78);
+  ctx.closePath();
+}
+
+function bossFacePath(ctx: CanvasRenderingContext2D): void {
+  ctx.beginPath();
+  ctx.moveTo(0, 36);
+  ctx.bezierCurveTo(-12, 26, -24, 10, -22, -6);
+  ctx.bezierCurveTo(-20, -18, -10, -24, 0, -22);
+  ctx.bezierCurveTo(10, -24, 20, -18, 22, -6);
+  ctx.bezierCurveTo(24, 10, 12, 26, 0, 36);
+  ctx.closePath();
+}
+
+function drawBossMask(ctx: CanvasRenderingContext2D, v: Visual, t: number): void {
+  ctx.save();
+  ctx.shadowColor = `rgba(240,230,212,${0.45 + v.glow * 0.4})`;
+  ctx.shadowBlur = 14 + v.glow * 16;
+  ctx.fillStyle = '#F3E8D6';
+  bossMitrePath(ctx);
+  ctx.fill();
+  bossFacePath(ctx);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.strokeStyle = 'rgba(140,28,19,0.7)';
+  ctx.lineWidth = 2;
+  bossMitrePath(ctx);
+  ctx.stroke();
+  bossFacePath(ctx);
+  ctx.stroke();
+
+  ctx.strokeStyle = '#D9A441';
+  ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  ctx.moveTo(0, -72);
+  ctx.lineTo(0, -26);
+  ctx.stroke();
+  ctx.fillStyle = '#8C1C13';
+  ctx.beginPath();
+  ctx.arc(0, -50, 3.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#2A1410';
+  ctx.beginPath();
+  ctx.moveTo(-7, 30);
+  ctx.quadraticCurveTo(0, 36, 7, 30);
+  ctx.lineTo(6, 42);
+  ctx.quadraticCurveTo(0, 40, -6, 42);
+  ctx.closePath();
+  ctx.fill();
+
+  const blink = eyeBlink(t, 0.4);
+  const open = Math.max(0.1, v.eyeOpen * blink);
+  drawBossEye(ctx, -8.5, 2, 6.4 * v.eyeScale, 8.6 * open, -0.1, v.glow);
+  drawBossEye(ctx, 8.5, 2, 6.4 * v.eyeScale, 8.6 * open, 0.1, v.glow);
+
+  if (v.consume > 0.2) {
+    ctx.save();
+    ctx.globalAlpha = v.consume * 0.5;
+    ctx.shadowColor = '#D9A441';
+    ctx.shadowBlur = 16;
+    ctx.fillStyle = '#F3E8D6';
+    ctx.beginPath();
+    ctx.ellipse(0, 20, 3, 1.3 + v.consume, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  drawCracks(ctx, v.crack, 'rgba(140,28,19,0.75)', [
+    [-14, -8, -2, 6, 8, 20],
+    [12, -16, 4, -2, 2, 16],
+    [-4, -20, 0, -8, 10, 2],
+  ]);
+}
+
+function drawBossEye(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  rx: number,
+  ry: number,
+  rot: number,
+  glow: number
+): void {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rot);
+  ctx.shadowColor = `rgba(140,28,19,${0.55 + glow * 0.4})`;
+  ctx.shadowBlur = 8 + glow * 10;
+  ctx.fillStyle = '#8C1C13';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#1A0808';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, rx * 0.38, ry * 0.72, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = `rgba(243,232,214,${0.35 + glow * 0.3})`;
+  ctx.beginPath();
+  ctx.ellipse(-rx * 0.18, -ry * 0.22, rx * 0.22, ry * 0.16, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 }
 
 function drawEnemyMask(ctx: CanvasRenderingContext2D, v: Visual, t: number): void {

@@ -78,7 +78,7 @@ describe('Терновый обод', () => {
 });
 
 describe('Пепельный венец', () => {
-  it('один случайный Квадрат врага не появляется в бою', () => {
+  it('одна случайная мелкая тварь не появляется в бою', () => {
     const order = [{ id: 'o1', kind: 'warden' as const, marks: 0 }];
     const plain = createBattle(order, BATTLES.L1, [], [], 0, () => 0.5);
     expect(plain.state.creatures.filter((cr) => cr.side === 'enemy')).toHaveLength(3);

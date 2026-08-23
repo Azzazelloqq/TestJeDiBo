@@ -3,8 +3,8 @@ export type Side = 'player' | 'enemy';
 /** Внутренние имена рангов. В интерфейсе они никогда не показываются (1.1). */
 export type Rank = 'triangle' | 'square' | 'circle';
 
-export type PlayerKind = 'warden' | 'hierophant';
-export type EnemyKind = 'brute' | 'shell' | 'eye' | 'preacher';
+export type PlayerKind = 'acolyte' | 'warden' | 'hierophant';
+export type EnemyKind = 'larva' | 'brute' | 'shell' | 'eye' | 'preacher';
 export type CreatureKind = PlayerKind | EnemyKind;
 
 export interface Cell {
@@ -77,6 +77,11 @@ export interface EmberState {
   armed: Cell | null;
 }
 
+/** Пир: после удара фигура может укусить ещё раз, если достаёт. */
+export interface FeastWindow {
+  creatureId: Id;
+}
+
 export type Winner = Side | null;
 
 export interface BattleState {
@@ -108,6 +113,12 @@ export interface BattleState {
   lastDepressionTurn: number;
   /** Убийства тварей за текущий ход игрока (комбо). */
   killStreak: number;
+  /** Пир: этот id может ударить ещё раз, даже при 0 ОД. */
+  feast: FeastWindow | null;
+  /** Дыры, которые арена открыла жестом. */
+  extraBlocked: Cell[];
+  /** Жест арены в этом бою уже случился. */
+  gestureDone: boolean;
 }
 
 export type BattleEvent =
@@ -128,6 +139,8 @@ export type BattleEvent =
   | { t: 'stunned'; id: Id; at: Cell }
   | { t: 'combo'; count: number }
   | { t: 'finisher'; at: Cell; kind: CreatureKind }
+  | { t: 'feast'; id: Id; targets: Cell[] }
+  | { t: 'arenaGesture'; arena: ArenaId }
   | { t: 'emberArmed'; at: Cell }
   | { t: 'emberFired'; at: Cell }
   | { t: 'bossPhase'; phase: 2 }

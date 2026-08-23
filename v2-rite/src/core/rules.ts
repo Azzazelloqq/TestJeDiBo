@@ -1,10 +1,12 @@
 import { blockedCells, directionsFor, getCreatureAt, getCreatureById, walkDirection } from './board';
 import { RANK_OF } from './creatures';
-import { wardenMoveRange } from './relics';
+import { acolyteMoveRange, wardenMoveRange } from './relics';
 import type { BattleState, Cell, CellKey, Creature, Id, Side } from './types';
 
 export function canCreatureAct(state: BattleState, creature: Creature): boolean {
-  if (state.winner !== null || state.turn !== creature.side || state.ap < 1) return false;
+  if (state.winner !== null || state.turn !== creature.side) return false;
+  if (state.feast?.creatureId === creature.id && creature.side === 'player') return true;
+  if (state.ap < 1) return false;
   if (!creature.acted) return true;
   // Блицкриг (9.2): зафиксированное существо действует до 5 раз.
   const blitz = state.karma.blitzkrieg;
@@ -19,7 +21,9 @@ function isDepressed(state: BattleState, creature: Creature): boolean {
 function rangeFor(state: BattleState, creature: Creature, mode: 'move' | 'attack'): number {
   if (isDepressed(state, creature)) return 1;
   const rank = RANK_OF[creature.kind];
-  if (rank === 'triangle') return 1;
+  if (rank === 'triangle') {
+    return mode === 'move' && creature.kind === 'acolyte' ? acolyteMoveRange(state.relics) : 1;
+  }
   if (rank === 'square') {
     return mode === 'move' && creature.kind === 'warden' ? wardenMoveRange(state.relics) : 3;
   }
@@ -63,6 +67,7 @@ export function reachableCells(
 export function getLegalMoves(state: BattleState, id: Id): Cell[] {
   const creature = getCreatureById(state.creatures, id);
   if (!creature || !canCreatureAct(state, creature)) return [];
+  if (state.feast?.creatureId === id) return [];
   return reachableCells(state, state.creatures, creature, 'move');
 }
 
@@ -85,7 +90,7 @@ export function getThreatenedCells(state: BattleState, side: Side, creatures: Cr
 }
 
 export function hasAnyLegalAction(state: BattleState, side: Side): boolean {
-  if (state.ap < 1) return false;
+  if (state.ap < 1 && !state.feast) return false;
   for (const creature of state.creatures) {
     if (creature.side !== side) continue;
     if (!canCreatureAct(state, creature)) continue;

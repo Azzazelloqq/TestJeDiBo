@@ -54,9 +54,16 @@ export interface RunState {
   idCounter: number;
 }
 
+/** Перед первым боем: две карты, выбрать одну (4.3). Воскрешение в старте бесполезно. */
+export function offerOpeningKarma(run: RunState, rng: () => number = Math.random): void {
+  const starters = ALL_CARD_IDS.filter((id) => id !== 'resurrection');
+  const options = pickRandom(starters, 2, rng);
+  if (options.length > 0) run.overlay = { kind: 'reward-cards', options };
+}
+
 export function startRun(): RunState {
-  // Шесть Стражей: квадрат, который на последней линии становится кругом.
-  const kinds: CreatureKind[] = ['warden', 'warden', 'warden', 'warden', 'warden', 'warden'];
+  // Два Стража и четыре Послушника — лестница к кругу.
+  const kinds: CreatureKind[] = ['warden', 'warden', 'acolyte', 'acolyte', 'acolyte', 'acolyte'];
   return {
     phase: 'title',
     overlay: null,
@@ -214,9 +221,9 @@ export function completeBattle(run: RunState, rng: () => number = Math.random): 
   run.order = survivors;
   run.fallen.push(...dead);
 
-  // После выигранного боя орден получает +1 Стража.
+  // После выигранного боя орден получает +1 Послушника.
   run.idCounter += 1;
-  run.order.push({ id: `o${run.idCounter}`, kind: 'warden', marks: 0 });
+  run.order.push({ id: `o${run.idCounter}`, kind: 'acolyte', marks: 0 });
 
   const fromDoors = run.battleFromDoors;
   run.battle = null;
@@ -282,8 +289,8 @@ export function choosePickFallen(run: RunState, memberId: string): void {
   if (idx < 0) return;
   const member = run.fallen[idx];
   run.fallen.splice(idx, 1);
-  // Возвращается в орден Стражем.
-  run.order.push({ id: member.id, kind: 'warden', marks: member.marks });
+  // Возвращается в орден Послушником.
+  run.order.push({ id: member.id, kind: 'acolyte', marks: member.marks });
   run.overlay = null;
 }
 
@@ -343,7 +350,7 @@ export function isEventOptionAvailable(run: RunState, effect: EventEffect): bool
     case 'nextBattleAp':
       return true;
     case 'loseAcolyteGainRelic':
-      return run.order.some((m) => m.kind === 'warden') && untakenRelics(run).length > 0;
+      return run.order.some((m) => m.kind === 'acolyte' || m.kind === 'warden') && untakenRelics(run).length > 0;
     case 'tradeCard':
       return run.pool.length > 0 && ALL_CARD_IDS.some((c) => !run.pool.includes(c));
     case 'ordainOne':
@@ -370,8 +377,9 @@ export function chooseEventOption(run: RunState, eventId: EventId, option: 'a' |
       run.overlay = null;
       return [];
     case 'loseAcolyteGainRelic': {
-      const idx = run.order.findIndex((m) => m.kind === 'warden');
-      const [lost] = run.order.splice(idx, 1);
+      const idx = run.order.findIndex((m) => m.kind === 'acolyte');
+      const fallback = idx >= 0 ? idx : run.order.findIndex((m) => m.kind === 'warden');
+      const [lost] = run.order.splice(fallback, 1);
       run.fallen.push(lost);
       giveRelicOverlay(run, rng);
       return [];

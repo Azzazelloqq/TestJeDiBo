@@ -40,6 +40,7 @@ export function getCreatureById(creatures: Creature[], id: Id): Creature | undef
 export function blockedCells(state: BattleState): Set<CellKey> {
   const set = new Set<CellKey>();
   for (const cell of ARENAS[state.arena].blocked) set.add(cellKey(cell));
+  for (const cell of state.extraBlocked) set.add(cellKey(cell));
   for (const cocoon of state.cocoons) set.add(cellKey(cocoon.cell));
   return set;
 }

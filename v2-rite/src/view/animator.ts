@@ -275,6 +275,29 @@ export class Animator {
           this.comboUntil = nowMs + cursor + 700;
           break;
         }
+        case 'feast': {
+          this.finisherUntil = Math.max(this.finisherUntil, nowMs + cursor + 420);
+          const { x, y } = cellCenter(event.targets[0] ?? { x: 3, y: 3 });
+          this.schedule(cursor, () => {
+            this.camera.zoomTransition(1.14, 180, nowMs + cursor);
+            this.camera.shake(10, 220, nowMs + cursor);
+            this.particles.sparks(x, y, 14);
+            this.particles.goldDustIn(x - 36, y - 36, x + 36, y + 36, 18);
+          });
+          this.schedule(cursor + 360, () => this.camera.zoomTransition(1, 240, nowMs + cursor + 360));
+          this.setAvatar('player', 'eat', nowMs + cursor + 1600);
+          this.setAvatar('enemy', 'hurt', nowMs + cursor + 1400);
+          break;
+        }
+        case 'arenaGesture': {
+          this.schedule(cursor, () => {
+            this.camera.shake(SHAKE_WOW_SCENE_PX, 480, nowMs + cursor);
+            this.flashUntil = nowMs + cursor + 90;
+            this.flashStrength = 0.5;
+          });
+          cursor += 360;
+          break;
+        }
         case 'finisher': {
           this.finisherUntil = nowMs + cursor + 1400;
           const { x, y } = cellCenter(event.at);

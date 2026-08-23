@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { decideAiAction } from './ai';
 import { applyAttack, applyMove, createBattle, destroyCreatures, endTurnAndAdvance, forceEndTurn } from './battle';
+import { getLegalAttacks } from './rules';
 import { BATTLES } from './arenas';
 import { PATH_LEVELS } from './path';
-import { enterNode, nodesAvailable, startRun } from './run';
+import { enterNode, nodesAvailable, offerOpeningKarma, startRun } from './run';
 import { c, makeState } from './testHelpers';
 import type { BattleEvent } from './types';
 
@@ -32,6 +33,24 @@ describe('фаза II босса (7.5)', () => {
   });
 });
 
+describe('жест арены', () => {
+  it('на третьем ходе игрока колодец открывает две новые дыры', () => {
+    const player = c('player', 'warden', 6, 6);
+    const foe = c('enemy', 'brute', 1, 1);
+    const state = makeState([player, foe], {
+      arena: 'well',
+      turn: 'enemy',
+      playerTurnNumber: 2,
+      actionsTaken: 1,
+    });
+    const events = endTurnAndAdvance(state, () => 0.5);
+    expect(state.playerTurnNumber).toBe(3);
+    expect(state.gestureDone).toBe(true);
+    expect(events.some((e) => e.t === 'arenaGesture')).toBe(true);
+    expect(state.extraBlocked.some((cell) => cell.x === 3 && cell.y === 4)).toBe(true);
+  });
+});
+
 describe('Жаровня (8.1)', () => {
   it('помеченная клетка вспыхивает ровно через один ход игрока', () => {
     const victim = c('player', 'warden', 3, 3);
@@ -50,10 +69,11 @@ describe('Жаровня (8.1)', () => {
     expect(state.ember.armed).toBeNull();
   });
 
-  it('каждый 3-й ход игрока помечается новая клетка', () => {
+  it('на третьем ходе игрока вспыхивают все угли', () => {
     const player = c('player', 'warden', 6, 6);
     const foe = c('enemy', 'brute', 1, 1);
-    const state = makeState([player, foe], {
+    const onCoal = c('enemy', 'brute', 2, 2);
+    const state = makeState([player, foe, onCoal], {
       arena: 'brazier',
       turn: 'enemy',
       playerTurnNumber: 2,
@@ -61,12 +81,26 @@ describe('Жаровня (8.1)', () => {
     });
     const events = endTurnAndAdvance(state, () => 0);
     expect(state.playerTurnNumber).toBe(3);
-    expect(events.some((e) => e.t === 'emberArmed')).toBe(true);
-    expect(state.ember.armed).not.toBeNull();
+    expect(events.some((e) => e.t === 'arenaGesture')).toBe(true);
+    expect(events.filter((e) => e.t === 'emberFired').length).toBe(6);
+    expect(state.creatures.some((cr) => cr.id === onCoal.id)).toBe(false);
   });
 });
 
 describe('карта авансом, комбо и финишер', () => {
+  it('при непустом пуле одна карта сразу в руке', () => {
+    const { state, events } = createBattle(
+      [{ id: 'o1', kind: 'warden', marks: 0 }],
+      BATTLES.L1,
+      [],
+      ['spy', 'blitzkrieg'],
+      0,
+      () => 0
+    );
+    expect(state.karma.pendingCard).toBe('spy');
+    expect(events.some((e) => e.t === 'cardDrawn')).toBe(true);
+  });
+
   it('при пустом пуле бой начинается с картой в руке', () => {
     const { state, events } = createBattle(
       [{ id: 'o1', kind: 'warden', marks: 0 }],
@@ -111,6 +145,30 @@ describe('карта авансом, комбо и финишер', () => {
     expect(events.some((e) => e.t === 'combo' && e.count === 3)).toBe(true);
     expect(state.ap).toBe(6);
     expect(events.some((e) => e.t === 'finisher')).toBe(true);
+  });
+});
+
+describe('пир', () => {
+  it('после удара, если достаёт ещё, ход не кончается', () => {
+    const w = c('player', 'warden', 4, 4);
+    const first = c('enemy', 'brute', 4, 3);
+    const second = c('enemy', 'brute', 4, 1);
+    const { state: next, events } = applyAttack(makeState([w, first, second]), w.id, { x: 4, y: 3 }, () => 0.5);
+    expect(next.turn).toBe('player');
+    expect(next.feast?.creatureId).toBe(w.id);
+    expect(events.some((e) => e.t === 'feast')).toBe(true);
+    expect(getLegalAttacks(next, w.id).some((cell) => cell.x === 4 && cell.y === 1)).toBe(true);
+  });
+
+  it('второй удар пира завершает ход', () => {
+    const w = c('player', 'warden', 4, 3);
+    w.acted = true;
+    const second = c('enemy', 'brute', 4, 1);
+    const spare = c('enemy', 'brute', 7, 0);
+    const state = makeState([w, second, spare], { feast: { creatureId: w.id }, ap: 0, actionsTaken: 1 });
+    const { state: next } = applyAttack(state, w.id, { x: 4, y: 1 }, () => 0.5);
+    expect(next.feast).toBeNull();
+    expect(next.turn).toBe('enemy');
   });
 });
 
@@ -169,9 +227,20 @@ describe('путь (4.1)', () => {
     expect(run.completed).toEqual(before.completed);
   });
 
-  it('старт — шесть Стражей', () => {
+  it('старт — два Стража и четыре Послушника', () => {
     const run = startRun();
     expect(run.order).toHaveLength(6);
-    expect(run.order.every((m) => m.kind === 'warden')).toBe(true);
+    expect(run.order.filter((m) => m.kind === 'warden')).toHaveLength(2);
+    expect(run.order.filter((m) => m.kind === 'acolyte')).toHaveLength(4);
+  });
+
+  it('перед первым боем предлагают выбрать карму', () => {
+    const run = startRun();
+    offerOpeningKarma(run, () => 0);
+    expect(run.overlay?.kind).toBe('reward-cards');
+    if (run.overlay?.kind === 'reward-cards') {
+      expect(run.overlay.options).toHaveLength(2);
+      expect(run.overlay.options.includes('resurrection')).toBe(false);
+    }
   });
 });

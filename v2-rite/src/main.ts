@@ -1,4 +1,4 @@
-import { audio, type SfxName } from './audio/audio';
+import { audio, PATH_MUSIC, type MusicName, type SfxName } from './audio/audio';
 import {
   chooseAltar,
   chooseEventOption,
@@ -13,6 +13,7 @@ import {
   enterNode,
   ingestBattleEvents,
   isEventDeadEnd,
+  offerOpeningKarma,
   startRun,
   type RunPhase,
   type RunState,
@@ -113,6 +114,13 @@ function playEventSounds(events: BattleEvent[]): void {
         audio.duckForOrdination();
         sfxLater('kill_big', 260);
         break;
+      case 'feast':
+        audio.sfx('kill_big', { volume: 0.85 });
+        audio.sfx('blitz', { volume: 0.7 });
+        break;
+      case 'arenaGesture':
+        audio.sfx('ember_fire');
+        break;
       case 'ordained':
         audio.duckForOrdination();
         audio.sfx('ordain');
@@ -201,6 +209,7 @@ function handleClick(x: number, y: number): void {
       if (pointInTitleButton(x, y)) {
         audio.sfx('ui_click');
         run.phase = 'map';
+        offerOpeningKarma(run);
         mapRevealAt = performance.now();
       }
       break;
@@ -297,6 +306,7 @@ function restart(): void {
   audio.setHeartbeat(false);
   run = startRun();
   run.phase = 'map';
+  offerOpeningKarma(run);
   mapRevealAt = performance.now();
 }
 
@@ -322,16 +332,27 @@ attachInput(canvas, {
 
 // ---------- Музыка по фазам (12.3) ----------
 
+let currentPathTrack: MusicName | null = null;
+
+function pickPathTrack(): MusicName {
+  return PATH_MUSIC[Math.floor(Math.random() * PATH_MUSIC.length)] ?? 'mus_path';
+}
+
 function updateMusic(): void {
   switch (run.phase) {
     case 'title':
     case 'map':
-      audio.music('mus_path');
+      if (!currentPathTrack) currentPathTrack = pickPathTrack();
+      audio.music(currentPathTrack);
       break;
     case 'battle':
-      audio.music(run.battleNode?.type === 'boss' ? 'mus_boss' : 'mus_battle');
+      currentPathTrack = null;
+      audio.music(
+        run.battleNode?.type === 'boss' ? 'mus_boss' : Math.random() < 0.5 ? 'mus_battle' : 'mus_battle2'
+      );
       break;
     case 'summary':
+      currentPathTrack = null;
       audio.music(null); // на итогах музыки нет
       break;
   }
@@ -403,3 +424,47 @@ document.addEventListener('visibilitychange', () => {
 });
 
 updateMusic();
+
+declare global {
+  interface Window {
+    __riteDump: () => unknown;
+    __riteAudio: () => unknown;
+  }
+}
+
+window.__riteDump = () => {
+  const b = run.battle;
+  return {
+    phase: run.phase,
+    overlay: run.overlay,
+    level: run.level,
+    order: run.order,
+    pool: run.pool,
+    relics: run.relics,
+    outcome: run.outcome,
+    stats: run.stats,
+    battle: b
+      ? {
+          arena: b.arena,
+          turn: b.turn,
+          ap: b.ap,
+          playerTurnNumber: b.playerTurnNumber,
+          actionsTaken: b.actionsTaken,
+          winner: b.winner,
+          feast: b.feast,
+          card: b.karma.pendingCard,
+          gestureDone: b.gestureDone,
+          ember: b.ember,
+          creatures: b.creatures.map((c) => ({
+            id: c.id,
+            side: c.side,
+            kind: c.kind,
+            x: c.cell.x,
+            y: c.cell.y,
+            acted: c.acted,
+          })),
+        }
+      : null,
+  };
+};
+window.__riteAudio = () => audio.status();

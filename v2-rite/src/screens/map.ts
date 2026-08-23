@@ -5,12 +5,20 @@ import { CANVAS_H, CANVAS_W } from '../view/geometry';
 import { cardEffect, cardName, drawRelic, drawTooltip, relicEffect, relicName, SERIF, smallCaps } from '../view/ui';
 
 /** Позиции узлов: уровни идут снизу вверх, центр свободен от боковых панелей. */
+/** Смещение уровней — тропа петляет, не лесенка по центру. */
+const LEVEL_BEND = [0, -72, 54, -28, 96, -110, 18, 64, -8];
+const LEVEL_GAP = [0, 58, 70, 54, 78, 62, 68, 74, 80];
+
 export function nodePosition(node: PathNode): { x: number; y: number } {
-  const y = 656 - (node.level - 1) * 62;
+  let y = 656;
+  for (let i = 1; i < node.level; i++) y -= LEVEL_GAP[i] ?? 64;
+  const bend = LEVEL_BEND[node.level - 1] ?? 0;
   const siblings = PATH_LEVELS[node.level - 1];
-  if (siblings.length === 1) return { x: CANVAS_W / 2, y };
+  if (siblings.length === 1) return { x: CANVAS_W / 2 + bend, y };
   const idx = siblings.indexOf(node);
-  return { x: CANVAS_W / 2 + (idx === 0 ? -118 : 118), y };
+  const split = node.level === 2 ? 150 : node.level === 4 ? 132 : 118;
+  const lean = idx === 0 ? -split + bend * 0.35 : split + bend * 0.15;
+  return { x: CANVAS_W / 2 + lean, y };
 }
 
 export function mapNodeAt(x: number, y: number): PathNode | null {

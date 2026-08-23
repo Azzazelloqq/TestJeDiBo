@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyEndTurn } from './battle';
-import { discardInapplicable, isCardApplicable, playBlitzkrieg, playDeathline, playSpy } from './cards';
+import { discardInapplicable, isCardApplicable, playBarrage, playBlitzkrieg, playDeathline, playSpy } from './cards';
 import { getLegalMoves } from './rules';
 import { c, has, makeState, seqRng } from './testHelpers';
 import type { KarmaState } from './types';
@@ -8,6 +8,18 @@ import type { KarmaState } from './types';
 function karmaWith(pendingCard: KarmaState['pendingCard']): KarmaState {
   return { pendingCard, blitzkrieg: null, depressionTurns: 0, discardMessage: null };
 }
+
+describe('Обстрел', () => {
+  it('убивает только на подтверждённых клетках', () => {
+    const a = c('player', 'warden', 1, 6);
+    const foe = c('enemy', 'brute', 3, 1);
+    const safe = c('enemy', 'brute', 6, 1);
+    const state = makeState([a, foe, safe], { karma: karmaWith('barrage') });
+    const { state: next } = playBarrage(state, [{ x: 3, y: 1 }, { x: 0, y: 0 }], () => 0.5);
+    expect(next.creatures.some((cr) => cr.id === foe.id)).toBe(false);
+    expect(next.creatures.some((cr) => cr.id === safe.id)).toBe(true);
+  });
+});
 
 describe('Линия смерти (9.2)', () => {
   it('убивает существ обеих сторон в столбце и считается за ход', () => {
@@ -17,8 +29,7 @@ describe('Линия смерти (9.2)', () => {
     const foeOutside = c('enemy', 'brute', 6, 1);
     const state = makeState([myWarden, myAcolyte, foeInColumn, foeOutside], { karma: karmaWith('deathline') });
 
-    // randInt(0,7) при rng=3/8 → столбец 3.
-    const { state: next, events } = playDeathline(state, seqRng([3 / 8, 0.5]));
+    const { state: next, events } = playDeathline(state, 3, seqRng([0.5]));
     const ids = next.creatures.map((cr) => cr.id);
     expect(ids).not.toContain(myWarden.id);
     expect(ids).not.toContain(foeInColumn.id);

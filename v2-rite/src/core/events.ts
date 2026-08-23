@@ -29,7 +29,7 @@ export const EVENTS: Record<EventId, EventDef> = {
     id: 'blind',
     name: 'Слепой',
     text: 'Он сидит у стены и просит глаз. Взамен обещает то, что видел.',
-    a: { label: 'Отдать', outcome: 'Теряешь одного Стража, получаешь случайную реликвию', effect: { kind: 'loseAcolyteGainRelic' } },
+    a: { label: 'Отдать', outcome: 'Теряешь одного Послушника, получаешь случайную реликвию', effect: { kind: 'loseAcolyteGainRelic' } },
     b: { label: 'Пройти мимо', outcome: 'Ничего', effect: { kind: 'none' } },
   },
   boneTrader: {
@@ -51,6 +51,6 @@ export const EVENTS: Record<EventId, EventDef> = {
     name: 'Хор в стене',
     text: 'Голоса поют изнутри камня, и они знают твоё имя.',
     a: { label: 'Слушать', outcome: 'Следующий бой начинается с 7 ОД вместо 5', effect: { kind: 'nextBattleAp' } },
-    b: { label: 'Заткнуть уши', outcome: 'Одно погибшее существо возвращается Стражем', effect: { kind: 'raiseFallen' } },
+    b: { label: 'Заткнуть уши', outcome: 'Одно погибшее существо возвращается Послушником', effect: { kind: 'raiseFallen' } },
   },
 };

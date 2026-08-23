@@ -1,7 +1,7 @@
 import { computeIntents, decideAiAction, type Intent } from '../core/ai';
 import { applyAttack, applyDepression, applyEndTurn, applyMove, applyPreacherSummon, forceEndTurn, type Result } from '../core/battle';
 import { getCreatureAt, getCreatureById } from '../core/board';
-import { CARDS, discardInapplicable, isCardApplicable, playBarrage, playBlitzkrieg, playDeathline, playResurrection, playSpy } from '../core/cards';
+import { CARDS, discardInapplicable, isCardApplicable, pickBarrageCells, playBarrage, playBlitzkrieg, playDeathline, playResurrection, playSpy } from '../core/cards';
 import { RANK_OF } from '../core/creatures';
 import { getLegalAttacks, getLegalMoves } from '../core/rules';
 import type { BattleEvent, BattleState, CardId, Cell, Id } from '../core/types';
@@ -40,7 +40,8 @@ export class BattleScreen {
   private selectedAtMs = 0;
   private hoverCell: Cell | null = null;
   private hoverPoint: { x: number; y: number } | null = null;
-  private targeting: 'spy' | 'resurrection' | null = null;
+  private targeting: 'spy' | 'resurrection' | 'deathline' | 'barrage' | null = null;
+  private barragePreview: Cell[] | null = null;
   private aiTimer: ReturnType<typeof setTimeout> | null = null;
   private intents: Map<Id, Intent> = new Map();
   private intentsFor: BattleState | null = null;
@@ -58,6 +59,7 @@ export class BattleScreen {
   onBattleStart(firstBattle: boolean): void {
     this.selectedId = null;
     this.targeting = null;
+    this.barragePreview = null;
     this.firstBattle = firstBattle;
     this.hintUntilActions = firstBattle ? 3 : 1;
     this.shownAtMs = performance.now();
@@ -117,6 +119,13 @@ export class BattleScreen {
     }
     this.deps.setBattle(state);
     this.deps.onEvents(events);
+
+    if (state.feast) {
+      this.selectedId = state.feast.creatureId;
+      this.selectedAtMs = performance.now();
+      const feaster = getCreatureById(state.creatures, state.feast.creatureId);
+      setSelectionOrigin(feaster ? feaster.cell : null);
+    }
 
     if (state.winner !== null) {
       this.stopAi();
@@ -187,6 +196,14 @@ export class BattleScreen {
         audio.sfx('ui_deny');
         return;
       }
+      if (this.targeting === 'barrage' && this.barragePreview) {
+        audio.sfx('ui_click');
+        const cells = this.barragePreview;
+        this.targeting = null;
+        this.barragePreview = null;
+        this.commit(playBarrage(battle, cells));
+        return;
+      }
       audio.sfx('ui_click');
       this.playPendingCard();
       return;
@@ -224,6 +241,18 @@ export class BattleScreen {
     if (battle.turn !== 'player') {
       this.denyMsg = 'Сейчас ход противника';
       this.denyMsgUntil = performance.now() + 1200;
+      audio.sfx('ui_deny');
+      return;
+    }
+
+    if (this.targeting === 'deathline') {
+      this.targeting = null;
+      this.commit(playDeathline(battle, cell.x));
+      return;
+    }
+    if (this.targeting === 'barrage') {
+      this.denyMsg = 'Нажми карту ещё раз — подтвердить. Esc — отмена';
+      this.denyMsgUntil = performance.now() + 1600;
       audio.sfx('ui_deny');
       return;
     }
@@ -273,7 +302,13 @@ export class BattleScreen {
     }
 
     if (clicked && clicked.side === 'player') {
-      if (clicked.acted && !this.canActViaBlitz(battle, clicked.id)) {
+      if (battle.feast && battle.feast.creatureId !== clicked.id) {
+        this.denyMsg = 'Пир: бей той же фигурой';
+        this.denyMsgUntil = performance.now() + 1400;
+        audio.sfx('ui_deny');
+        return;
+      }
+      if (clicked.acted && !this.canActViaBlitz(battle, clicked.id) && battle.feast?.creatureId !== clicked.id) {
         this.denyMsg = 'Эта фигура уже ходила';
         this.denyMsgUntil = performance.now() + 1400;
         audio.sfx('ui_deny');
@@ -384,10 +419,15 @@ export class BattleScreen {
     }
     switch (card) {
       case 'deathline':
-        this.commit(playDeathline(battle));
+        this.targeting = 'deathline';
+        this.denyMsg = 'Выбери столбец — кликни любую клетку в нём';
+        this.denyMsgUntil = performance.now() + 4000;
         break;
       case 'barrage':
-        this.commit(playBarrage(battle));
+        this.targeting = 'barrage';
+        this.barragePreview = pickBarrageCells();
+        this.denyMsg = 'Клетки вспыхнули. Нажми карту ещё раз. Esc — отмена';
+        this.denyMsgUntil = performance.now() + 5000;
         break;
       case 'blitzkrieg':
         this.commit(playBlitzkrieg(battle));
@@ -424,6 +464,9 @@ export class BattleScreen {
   cancel(): void {
     if (this.targeting) {
       this.targeting = null;
+      this.barragePreview = null;
+      this.denyMsg = 'Отмена';
+      this.denyMsgUntil = performance.now() + 800;
       return;
     }
     this.clearSelection();
@@ -454,12 +497,14 @@ export class BattleScreen {
       hoverPoint: this.hoverPoint,
       nowMs,
       targeting: this.targeting,
+      barragePreview: this.barragePreview,
       animator: this.deps.animator,
       intents: nowMs - this.shownAtMs > (this.firstBattle ? 3600 : 0) ? this.intents : new Map(),
       discardMessage: nowMs < this.denyMsgUntil ? this.denyMsg : nowMs < this.discardMsgUntil ? this.discardMsg : null,
       spawnFx: introFx,
-      hint:
-        this.hintUntilActions > 0 && nowMs - this.shownAtMs > this.introDurationMs()
+      hint: battle.feast
+        ? 'ПИР — эта фигура достаёт ещё. Бей выделенную тварь'
+        : this.hintUntilActions > 0 && nowMs - this.shownAtMs > this.introDurationMs()
           ? 'Кликни свою фигуру, потом клетку. Стрелки над тварями — куда они пойдут'
           : null,
     };

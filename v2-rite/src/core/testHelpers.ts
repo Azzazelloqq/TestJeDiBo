@@ -25,6 +25,9 @@ export function makeState(creatures: Creature[], overrides: Partial<BattleState>
     spawnCounter: 0,
     lastDepressionTurn: 0,
     killStreak: 0,
+    feast: null,
+    extraBlocked: [],
+    gestureDone: false,
     ...overrides,
   };
 }

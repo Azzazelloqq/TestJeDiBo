@@ -51,12 +51,12 @@ export interface BattleDef {
 
 const spawn = (kind: EnemyKind, x: number, y: number): EnemySpawn => ({ kind, cell: c(x, y) });
 
-/** Составы боёв: только квадрат, панцирь, круг и босс. */
+/** Составы боёв: лестница треугольник → квадрат → панцирь/круг → босс. */
 export const BATTLES: Record<BattleId, BattleDef> = {
   L1: {
     id: 'L1',
     arena: 'vestibule',
-    enemies: [spawn('brute', 2, 1), spawn('brute', 3, 1), spawn('brute', 5, 1)],
+    enemies: [spawn('larva', 2, 1), spawn('larva', 3, 1), spawn('larva', 5, 1)],
     elite: false,
     boss: false,
     noReward: false,
@@ -64,7 +64,7 @@ export const BATTLES: Record<BattleId, BattleDef> = {
   L2B: {
     id: 'L2B',
     arena: 'well',
-    enemies: [spawn('brute', 1, 1), spawn('brute', 6, 1), spawn('shell', 3, 0)],
+    enemies: [spawn('larva', 1, 1), spawn('larva', 3, 1), spawn('larva', 4, 1), spawn('larva', 6, 1), spawn('brute', 3, 0)],
     elite: false,
     boss: false,
     noReward: false,
@@ -72,7 +72,7 @@ export const BATTLES: Record<BattleId, BattleDef> = {
   L3: {
     id: 'L3',
     arena: 'brazier',
-    enemies: [spawn('brute', 1, 1), spawn('brute', 6, 1), spawn('shell', 3, 0), spawn('eye', 4, 0)],
+    enemies: [spawn('larva', 1, 1), spawn('larva', 6, 1), spawn('brute', 3, 1), spawn('shell', 4, 0)],
     elite: false,
     boss: false,
     noReward: false,
@@ -80,7 +80,7 @@ export const BATTLES: Record<BattleId, BattleDef> = {
   L4A: {
     id: 'L4A',
     arena: 'rift',
-    enemies: [spawn('brute', 1, 1), spawn('brute', 6, 1), spawn('shell', 2, 0), spawn('shell', 5, 0), spawn('eye', 4, 0)],
+    enemies: [spawn('larva', 1, 1), spawn('larva', 6, 1), spawn('shell', 2, 0), spawn('shell', 5, 0), spawn('eye', 4, 0)],
     elite: true,
     boss: false,
     noReward: false,
@@ -88,7 +88,7 @@ export const BATTLES: Record<BattleId, BattleDef> = {
   L6A: {
     id: 'L6A',
     arena: 'gallery',
-    enemies: [spawn('brute', 2, 1), spawn('brute', 5, 1), spawn('shell', 3, 0), spawn('eye', 4, 0)],
+    enemies: [spawn('larva', 2, 1), spawn('larva', 5, 1), spawn('shell', 3, 0), spawn('eye', 4, 0)],
     elite: false,
     boss: false,
     noReward: false,
@@ -96,7 +96,7 @@ export const BATTLES: Record<BattleId, BattleDef> = {
   doors: {
     id: 'doors',
     arena: 'gallery',
-    enemies: [spawn('brute', 2, 1), spawn('brute', 5, 1), spawn('shell', 4, 0)],
+    enemies: [spawn('larva', 2, 1), spawn('larva', 5, 1), spawn('shell', 4, 0)],
     elite: false,
     boss: false,
     noReward: true,
@@ -104,7 +104,7 @@ export const BATTLES: Record<BattleId, BattleDef> = {
   L8: {
     id: 'L8',
     arena: 'choir',
-    enemies: [spawn('brute', 1, 1), spawn('brute', 6, 1), spawn('shell', 3, 0), spawn('shell', 4, 0), spawn('eye', 2, 0), spawn('eye', 5, 0)],
+    enemies: [spawn('brute', 1, 1), spawn('brute', 6, 1), spawn('shell', 3, 0), spawn('shell', 4, 0), spawn('eye', 5, 0)],
     elite: false,
     boss: false,
     noReward: false,
@@ -112,7 +112,7 @@ export const BATTLES: Record<BattleId, BattleDef> = {
   L9: {
     id: 'L9',
     arena: 'altar',
-    enemies: [spawn('brute', 1, 1), spawn('brute', 6, 1), spawn('shell', 2, 0), spawn('shell', 5, 0), spawn('preacher', 3, 0)],
+    enemies: [spawn('larva', 1, 1), spawn('larva', 6, 1), spawn('brute', 2, 0), spawn('brute', 5, 0), spawn('preacher', 3, 0)],
     elite: false,
     boss: true,
     noReward: false,

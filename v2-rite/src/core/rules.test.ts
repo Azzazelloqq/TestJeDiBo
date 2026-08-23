@@ -4,6 +4,21 @@ import { getLegalAttacks, getLegalMoves } from './rules';
 import { c, has, makeState } from './testHelpers';
 
 describe('движение по рангам (6.5)', () => {
+  it('Послушник ходит только вперёд на 1, бьёт вперёд и по диагонали', () => {
+    const a = c('player', 'acolyte', 4, 4);
+    const state = makeState([a]);
+    const moves = getLegalMoves(state, a.id);
+    expect(moves).toHaveLength(1);
+    expect(has(moves, 4, 3)).toBe(true);
+    expect(has(moves, 4, 5)).toBe(false);
+    expect(has(moves, 3, 4)).toBe(false);
+
+    const foe = c('enemy', 'larva', 3, 3);
+    const attacks = getLegalAttacks(makeState([a, foe]), a.id);
+    expect(has(attacks, 3, 3)).toBe(true);
+    expect(has(getLegalAttacks(makeState([a, c('enemy', 'larva', 4, 5)]), a.id), 4, 5)).toBe(false);
+  });
+
   it('Страж не ходит назад, ходит на 1–3 в пяти направлениях', () => {
     const w = c('player', 'warden', 4, 4);
     const state = makeState([w]);
@@ -70,7 +85,7 @@ describe('атака и ОД (6.4, 6.6)', () => {
   it('атака тратит все оставшиеся ОД и завершает ход', () => {
     const w = c('player', 'warden', 4, 4);
     const victim = c('enemy', 'brute', 4, 3);
-    const other = c('enemy', 'brute', 2, 1);
+    const other = c('enemy', 'brute', 0, 0);
     const state = makeState([w, victim, other]);
     const { state: next, events } = applyAttack(state, w.id, { x: 4, y: 3 }, () => 0.5);
     expect(next.turn).toBe('enemy');
@@ -113,6 +128,16 @@ describe('Панцирь', () => {
 });
 
 describe('посвящение (6.7)', () => {
+  it('Послушник на последней линии становится Стражем', () => {
+    const a = c('player', 'acolyte', 4, 1);
+    const enemy = c('enemy', 'larva', 7, 6);
+    const { state: next, events } = applyMove(makeState([a, enemy]), a.id, { x: 4, y: 0 }, () => 0.5);
+    expect(events.some((e) => e.t === 'ordained')).toBe(true);
+    const creature = next.creatures.find((cr) => cr.id === a.id)!;
+    expect(creature.kind).toBe('warden');
+    expect(creature.cell).toEqual({ x: 0, y: 7 });
+  });
+
   it('Страж на последней линии становится Иерофантом и уходит в зону размещения', () => {
     const w = c('player', 'warden', 4, 1, 3);
     const enemy = c('enemy', 'brute', 7, 6);

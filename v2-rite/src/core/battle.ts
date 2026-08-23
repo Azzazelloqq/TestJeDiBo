@@ -11,7 +11,7 @@ import {
 } from './board';
 import { RANK_OF, ordainedEnemyKind, ordainedPlayerKind } from './creatures';
 import { apPerTurn, karmaPeriod } from './relics';
-import { getLegalAttacks, getLegalMoves, hasAnyLegalAction } from './rules';
+import { getLegalAttacks, getLegalMoves, hasAnyLegalAction, reachableCells } from './rules';
 import {
   ALL_CARD_IDS,
   randInt,
@@ -78,11 +78,13 @@ export function createBattle(
 
   let spawns = def.enemies;
   const events: BattleEvent[] = [];
-  // Пепельный венец (5): один случайный Квадрат врага не появляется.
+  // Пепельный венец (5): одна случайная мелкая тварь не появляется.
   if (relics.includes('ashenCrown')) {
+    const larvaIdxs = spawns.map((s, i) => (s.kind === 'larva' ? i : -1)).filter((i) => i >= 0);
     const bruteIdxs = spawns.map((s, i) => (s.kind === 'brute' ? i : -1)).filter((i) => i >= 0);
-    if (bruteIdxs.length > 0) {
-      const skip = bruteIdxs[randInt(0, bruteIdxs.length - 1, rng)];
+    const fodder = larvaIdxs.length > 0 ? larvaIdxs : bruteIdxs;
+    if (fodder.length > 0) {
+      const skip = fodder[randInt(0, fodder.length - 1, rng)];
       spawns = spawns.filter((_, i) => i !== skip);
       events.push({ t: 'relicFired', relic: 'ashenCrown' });
     }
@@ -111,15 +113,26 @@ export function createBattle(
     spawnCounter: 0,
     lastDepressionTurn: 0,
     killStreak: 0,
+    feast: null,
+    extraBlocked: [],
+    gestureDone: false,
   };
 
-  // Пустой пул — одна временная карта сразу в руке. Воскрешение на старте неприменимо.
-  if (state.pool.length === 0) {
-    const starters = ALL_CARD_IDS.filter((id) => id !== 'resurrection');
-    const card = starters[randInt(0, starters.length - 1, rng)];
-    state.pool.push(card);
-    state.karma.pendingCard = card;
-    events.push({ t: 'cardDrawn', card });
+  // В каждом бою одна карта сразу в руке. Пустой пул — временная, не воскрешение.
+  if (state.karma.pendingCard === null) {
+    if (state.pool.length === 0) {
+      const starters = ALL_CARD_IDS.filter((id) => id !== 'resurrection');
+      const card = starters[randInt(0, starters.length - 1, rng)];
+      state.pool.push(card);
+      state.karma.pendingCard = card;
+      events.push({ t: 'cardDrawn', card });
+    } else {
+      const usable = state.pool.filter((id) => (id === 'resurrection' ? false : true));
+      const pickFrom = usable.length > 0 ? usable : state.pool;
+      const card = pickFrom[randInt(0, pickFrom.length - 1, rng)];
+      state.karma.pendingCard = card;
+      events.push({ t: 'cardDrawn', card });
+    }
   }
 
   return { state, events };
@@ -264,6 +277,7 @@ function consumeBlitz(state: BattleState, id: Id): boolean {
 function beginTurn(state: BattleState, side: Side, events: BattleEvent[], rng: () => number): void {
   state.turn = side;
   state.actionsTaken = 0;
+  state.feast = null;
   for (const c of state.creatures) if (c.side === side) c.acted = false;
 
   if (side === 'player') {
@@ -293,11 +307,15 @@ function beginTurn(state: BattleState, side: Side, events: BattleEvent[], rng: (
       }
     }
     // Каждый 3-й ход игрока — пометка новой клетки.
-    if (state.arena === 'brazier' && state.playerTurnNumber % 3 === 0) {
+    if (state.arena === 'brazier' && state.playerTurnNumber % 3 === 0 && state.gestureDone) {
       const cells = ARENAS.brazier.emberCells;
       const armed = cells[randInt(0, cells.length - 1, rng)];
       state.ember.armed = { ...armed };
       events.push({ t: 'emberArmed', at: { ...armed } });
+    }
+
+    if (!state.gestureDone && state.playerTurnNumber === 3) {
+      runArenaGesture(state, events, rng);
     }
 
     // Период Кармы (9.1): карта тянется в начале последнего хода периода.
@@ -355,7 +373,7 @@ export function endTurnAndAdvance(state: BattleState, rng: () => number = Math.r
 }
 
 function canSideStillAct(state: BattleState, side: Side): boolean {
-  if (state.ap >= 1 && hasAnyLegalAction(state, side)) return true;
+  if (hasAnyLegalAction(state, side)) return true;
   return side === 'player' && state.karma.pendingCard !== null;
 }
 
@@ -420,6 +438,9 @@ export function applyAttack(state: BattleState, id: Id, to: Cell, rng: () => num
   runDeathTraits(next, target, events);
   maybeFinisher(next, to, target.kind, events);
 
+  const spentFeast = next.feast?.creatureId === id;
+  if (spentFeast) next.feast = null;
+
   if (firstBlood) {
     next.ap -= 1;
     events.push({ t: 'relicFired', relic: 'firstBlood' }, { t: 'apSpent', left: next.ap });
@@ -434,8 +455,19 @@ export function applyAttack(state: BattleState, id: Id, to: Cell, rng: () => num
   checkBossPhase(next, events);
   events.push(...checkWinLoss(next));
   if (next.winner === null) {
-    if (firstBlood) events.push(...maybeAutoEndTurn(next, rng));
-    else events.push(...endTurnAndAdvance(next, rng));
+    const still = getCreatureById(next.creatures, id);
+    const more =
+      next.turn === 'player' && still
+        ? reachableCells(next, next.creatures, still, 'attack')
+        : [];
+    if (!spentFeast && more.length > 0 && !events.some((e) => e.t === 'finisher')) {
+      next.feast = { creatureId: id };
+      events.push({ t: 'feast', id, targets: more });
+    } else if (firstBlood) {
+      events.push(...maybeAutoEndTurn(next, rng));
+    } else {
+      events.push(...endTurnAndAdvance(next, rng));
+    }
   }
   return { state: next, events };
 }
@@ -501,14 +533,59 @@ export function applyDepression(state: BattleState): Result {
   return { state: next, events: [{ t: 'cardPlayed', card: 'depression' }] };
 }
 
-/** Ход тварей, в который Проповедник разыгрывает Депрессию (7.5). */
+/** Один раз за бой — на 3-м ходе тварей. */
 export function isDepressionTurn(state: BattleState): boolean {
   const preacher = state.creatures.find((c) => c.side === 'enemy' && c.kind === 'preacher');
   if (!preacher) return false;
-  if (state.bossPhase === 1) return state.enemyTurnNumber === 3 || state.enemyTurnNumber === 7;
-  const base = state.bossPhase2BaseTurn ?? 0;
-  const since = state.enemyTurnNumber - base;
-  return since > 0 && since % 4 === 0;
+  return state.enemyTurnNumber === 3 && state.lastDepressionTurn !== 3;
+}
+
+function runArenaGesture(state: BattleState, events: BattleEvent[], rng: () => number): void {
+  state.gestureDone = true;
+  events.push({ t: 'arenaGesture', arena: state.arena });
+
+  const openHole = (cell: Cell): void => {
+    if (state.extraBlocked.some((c) => cellEquals(c, cell))) return;
+    if (ARENAS[state.arena].blocked.some((c) => cellEquals(c, cell))) return;
+    state.extraBlocked.push({ ...cell });
+    events.push({ t: 'blocked', at: { ...cell }, source: 'arena' });
+    const victim = getCreatureAt(state.creatures, cell);
+    if (victim) destroyCreatures(state, [victim], events);
+  };
+
+  switch (state.arena) {
+    case 'well':
+      openHole({ x: 3, y: 4 });
+      openHole({ x: 4, y: 3 });
+      break;
+    case 'brazier':
+      for (const cell of ARENAS.brazier.emberCells) {
+        events.push({ t: 'emberFired', at: { ...cell } });
+        const victim = getCreatureAt(state.creatures, cell);
+        if (victim) destroyCreatures(state, [victim], events);
+      }
+      state.ember.armed = null;
+      break;
+    case 'rift':
+      openHole({ x: 2, y: 3 });
+      openHole({ x: 5, y: 4 });
+      break;
+    case 'gallery':
+      openHole({ x: 1, y: 3 });
+      openHole({ x: 1, y: 4 });
+      openHole({ x: 6, y: 3 });
+      openHole({ x: 6, y: 4 });
+      break;
+    case 'choir':
+      openHole({ x: 3, y: 2 });
+      openHole({ x: 4, y: 5 });
+      break;
+    case 'altar':
+    case 'vestibule':
+    default:
+      break;
+  }
+  void rng;
 }
 
 /** Ход тварей, в который Проповедник (фаза II) призывает Квадрат. */

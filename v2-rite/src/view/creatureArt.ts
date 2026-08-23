@@ -141,14 +141,41 @@ export function drawCreature(ctx: CanvasRenderingContext2D, o: DrawCreatureOpts)
 
   ctx.save();
 
-  // Дыхание: квадрат 5 с, круг почти не дышит.
+  // Дыхание: треугольник чаще, квадрат 5 с, круг почти не дышит.
   if (!o.still) {
-    const period = rank === 'square' ? 5 : 4;
-    const breathe = 1 + 0.02 * (0.5 + 0.5 * Math.sin(((t + (seed % 13) * 0.37) / period) * Math.PI * 2)) * (rank === 'circle' ? 0 : 1);
+    const period = rank === 'triangle' ? 3 : rank === 'square' ? 5 : 4;
+    const breathe =
+      1 +
+      0.02 *
+        (0.5 + 0.5 * Math.sin(((t + (seed % 13) * 0.37) / period) * Math.PI * 2)) *
+        (rank === 'circle' && o.kind !== 'preacher' ? 0 : 1);
     ctx.scale(breathe, breathe);
   }
 
   switch (o.kind) {
+    case 'acolyte':
+    case 'larva': {
+      drawTriangleBody(ctx, isPlayer ? PALETTE.player : PALETTE.enemy, isPlayer ? -1 : 1, isPlayer);
+      if (o.kind === 'acolyte') {
+        const blink = o.still ? 1 : blinkScale(o.nowMs, seed, 3.2, 5.8);
+        drawEye(ctx, -3.5, isPlayer ? 3 : -3, { r: 2.1, color: '#1a1614', pupilRatio: 0.5, blink });
+        drawEye(ctx, 3.5, isPlayer ? 3 : -3, {
+          r: 2.1,
+          color: '#1a1614',
+          pupilRatio: 0.5,
+          blink: o.still ? 1 : blinkScale(o.nowMs, seed + 29, 3.2, 5.8),
+        });
+      } else {
+        drawEye(ctx, 0, isPlayer ? 2 : -2, {
+          r: 3.2,
+          color: PALETTE.blood,
+          glow: 7,
+          blink: o.still ? 1 : blinkScale(o.nowMs, seed, 2.2, 4.2),
+        });
+      }
+      break;
+    }
+
     case 'shell': {
       const s = 44;
       ctx.fillStyle = '#2A201C';
@@ -262,34 +289,7 @@ export function drawCreature(ctx: CanvasRenderingContext2D, o: DrawCreatureOpts)
     }
 
     case 'preacher': {
-      const pulse = o.still ? 16 : 14 + (0.5 + 0.5 * Math.sin((t / 2) * Math.PI * 2)) * 8;
-      ctx.save();
-      ctx.shadowColor = PALETTE.blood;
-      ctx.shadowBlur = o.still ? 10 : 18 * (pulse / 22);
-      ctx.fillStyle = baseColor;
-      ctx.beginPath();
-      ctx.arc(0, 0, 22, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-
-      // Двойное кольцо (7.4).
-      ctx.strokeStyle = PALETTE.blood;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(0, 0, 22, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(0, 0, 17, 0, Math.PI * 2);
-      ctx.stroke();
-
-      drawEye(ctx, 0, 0, {
-        r: 6,
-        color: '#141210',
-        vertical: true,
-        pupilRatio: 0.55,
-        pupilScaleX: mood.preacherNarrow ? 0.45 : 1,
-      });
+      drawPreacher(ctx, t, o.still ?? false, mood.preacherNarrow ?? false);
       break;
     }
   }
@@ -297,4 +297,151 @@ export function drawCreature(ctx: CanvasRenderingContext2D, o: DrawCreatureOpts)
   if (isPlayer && o.marks > 0) drawMarks(ctx, o.marks, seed);
 
   ctx.restore();
+}
+
+/** Равносторонний треугольник, вершина смотрит «вперёд» стороны. */
+function drawTriangleBody(ctx: CanvasRenderingContext2D, fill: string, dir: 1 | -1, player: boolean): void {
+  const r = 22;
+  ctx.save();
+  ctx.shadowColor = '#000';
+  ctx.shadowBlur = 12;
+  ctx.shadowOffsetY = 4;
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  for (let i = 0; i < 3; i++) {
+    const a = -Math.PI / 2 + (dir === 1 ? Math.PI : 0) + (i * 2 * Math.PI) / 3;
+    const x = Math.cos(a) * r;
+    const y = Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  ctx.strokeStyle = player ? 'rgba(0,0,0,0.4)' : 'rgba(0,0,0,0.55)';
+  ctx.lineWidth = player ? 1.5 : 3;
+  ctx.beginPath();
+  for (let i = 0; i < 3; i++) {
+    const a = -Math.PI / 2 + (dir === 1 ? Math.PI : 0) + (i * 2 * Math.PI) / 3;
+    const x = Math.cos(a) * r;
+    const y = Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.stroke();
+
+  if (player) {
+    ctx.strokeStyle = 'rgba(0,0,0,0.10)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 5; i++) {
+      const a = ((i * 2.1) % 3) - 1.4;
+      ctx.beginPath();
+      ctx.moveTo(-6 + i * 2.4, 4 + a * 3);
+      ctx.lineTo(-2 + i * 2.1, 8 + a);
+      ctx.stroke();
+    }
+  }
+}
+
+/** Митра, тройное кольцо, тлеющее ядро — сразу читается как босс, не как круг. */
+function drawPreacher(ctx: CanvasRenderingContext2D, t: number, still: boolean, narrow: boolean): void {
+  const pulse = still ? 0.35 : 0.5 + 0.5 * Math.sin((t / 1.6) * Math.PI * 2);
+
+  ctx.save();
+  ctx.shadowColor = PALETTE.blood;
+  ctx.shadowBlur = still ? 14 : 18 + pulse * 10;
+  ctx.fillStyle = '#3A1814';
+  ctx.beginPath();
+  ctx.arc(0, 4, 20, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.strokeStyle = PALETTE.blood;
+  ctx.lineWidth = 3.5;
+  ctx.beginPath();
+  ctx.arc(0, 4, 20, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = PALETTE.candle;
+  ctx.beginPath();
+  ctx.arc(0, 4, 15, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.strokeStyle = PALETTE.blood;
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.arc(0, 4, 10.5, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.save();
+  ctx.shadowColor = PALETTE.candle;
+  ctx.shadowBlur = still ? 8 : 10 + pulse * 8;
+  ctx.fillStyle = `rgba(217,164,65,${0.28 + pulse * 0.22})`;
+  ctx.beginPath();
+  ctx.arc(0, 4, 5.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // Митра — силуэт, которого нет ни у круга, ни у глаза.
+  ctx.save();
+  ctx.shadowColor = 'rgba(239,230,216,0.35)';
+  ctx.shadowBlur = 10;
+  ctx.fillStyle = '#F0E6D4';
+  ctx.beginPath();
+  ctx.moveTo(0, -36);
+  ctx.bezierCurveTo(10, -30, 16, -18, 13, -6);
+  ctx.lineTo(7, -2);
+  ctx.lineTo(0, -8);
+  ctx.lineTo(-7, -2);
+  ctx.lineTo(-13, -6);
+  ctx.bezierCurveTo(-16, -18, -10, -30, 0, -36);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  ctx.strokeStyle = PALETTE.blood;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, -36);
+  ctx.bezierCurveTo(10, -30, 16, -18, 13, -6);
+  ctx.lineTo(7, -2);
+  ctx.lineTo(0, -8);
+  ctx.lineTo(-7, -2);
+  ctx.lineTo(-13, -6);
+  ctx.bezierCurveTo(-16, -18, -10, -30, 0, -36);
+  ctx.closePath();
+  ctx.stroke();
+
+  ctx.strokeStyle = PALETTE.candle;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, -32);
+  ctx.lineTo(0, -10);
+  ctx.stroke();
+  ctx.fillStyle = PALETTE.blood;
+  ctx.beginPath();
+  ctx.arc(0, -22, 2.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Ленты столы.
+  ctx.strokeStyle = PALETTE.candle;
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.moveTo(-7, 20);
+  ctx.quadraticCurveTo(-10, 28, -8, 34);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(7, 20);
+  ctx.quadraticCurveTo(10, 28, 8, 34);
+  ctx.stroke();
+
+  drawEye(ctx, 0, 3, {
+    r: 6.4,
+    color: PALETTE.blood,
+    glow: still ? 8 : 12 + pulse * 6,
+    vertical: true,
+    pupilRatio: 0.58,
+    pupilScaleX: narrow ? 0.4 : 1,
+  });
 }

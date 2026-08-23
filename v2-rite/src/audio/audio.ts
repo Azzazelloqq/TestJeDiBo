@@ -35,7 +35,16 @@ export type SfxName =
   | 'run_lose'
   | 'map_move';
 
-export type MusicName = 'mus_path' | 'mus_battle' | 'mus_boss';
+export type MusicName =
+  | 'mus_path'
+  | 'mus_path2'
+  | 'mus_path3'
+  | 'mus_battle'
+  | 'mus_battle2'
+  | 'mus_boss';
+
+/** Фон: титул и карта. */
+export const PATH_MUSIC: readonly MusicName[] = ['mus_path', 'mus_path2', 'mus_path3'];
 
 export const ALL_SFX: SfxName[] = [
   'ui_hover', 'ui_select', 'ui_deny', 'ui_click', 'move', 'ap_spend', 'kill', 'kill_big', 'ordain',
@@ -43,7 +52,7 @@ export const ALL_SFX: SfxName[] = [
   'bell_toll', 'catcher_die', 'shell_open', 'eye_charge', 'eye_push', 'ember_arm', 'ember_fire', 'boss_theme',
   'boss_phase', 'relic_get', 'battle_win', 'run_lose', 'map_move',
 ];
-const ALL_MUSIC: MusicName[] = ['mus_path', 'mus_battle', 'mus_boss'];
+const ALL_MUSIC: MusicName[] = [...PATH_MUSIC, 'mus_battle', 'mus_battle2', 'mus_boss'];
 
 const MAX_SOURCES = 12; // 12.1: тринадцатый вытесняет самый старый
 
@@ -418,59 +427,6 @@ class AudioLayer {
     this.musicFromFile = name;
   }
 
-  private startProceduralMusic(name: MusicName): void {
-    if (!this.ctx || !this.musicBus) return;
-    const ctx = this.ctx;
-    const gain = ctx.createGain();
-    gain.gain.value = 0;
-    gain.gain.setTargetAtTime(0.28, ctx.currentTime, 0.5);
-    gain.connect(this.musicBus);
-
-    const base = name === 'mus_boss' ? 41 : 55;
-    const cutoff = name === 'mus_boss' ? 260 : name === 'mus_battle' ? 520 : 380;
-    const osc1 = ctx.createOscillator();
-    const osc2 = ctx.createOscillator();
-    osc1.type = 'sawtooth';
-    osc2.type = 'sawtooth';
-    osc1.frequency.value = base;
-    osc2.frequency.value = base * Math.pow(2, 6 / 1200);
-
-    const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.value = cutoff;
-    lp.Q.value = 0.7;
-
-    osc1.connect(lp);
-    osc2.connect(lp);
-    lp.connect(gain);
-
-    const extra = ctx.createOscillator();
-    extra.type = name === 'mus_path' ? 'sine' : 'triangle';
-    extra.frequency.value = name === 'mus_boss' ? 61.5 : name === 'mus_battle' ? 82.4 : 82.5;
-    const extraGain = ctx.createGain();
-    extraGain.gain.value = name === 'mus_path' ? 0.12 : 0.2;
-    extra.connect(extraGain);
-    extraGain.connect(lp);
-
-    osc1.start();
-    osc2.start();
-    extra.start();
-
-    this.musicVoice = {
-      gain,
-      stop: () => {
-        try {
-          osc1.stop();
-          osc2.stop();
-          extra.stop();
-        } catch {
-          /* ok */
-        }
-      },
-    };
-    this.musicFromFile = null;
-  }
-
   /** Смена музыкального лупа с кроссфейдом 2 с (12.3). */
   music(name: MusicName | null): void {
     if (!this.ctx || !this.musicBus) {
@@ -489,10 +445,8 @@ class AudioLayer {
       this.startFileMusic(name, buffer);
       return;
     }
-    this.startProceduralMusic(name);
     void this.load(name).then((loaded) => {
       if (!loaded || !this.ctx || this.currentMusic !== name || this.musicFromFile === name) return;
-      this.fadeOutMusic(1.2);
       this.startFileMusic(name, loaded);
     });
   }
@@ -555,6 +509,17 @@ class AudioLayer {
 
   resume(): void {
     if (this.unlocked) void this.ctx?.resume().catch(() => undefined);
+  }
+
+  /** Снимок для плейтеста: играет ли файл после клика. */
+  status(): { unlocked: boolean; music: MusicName | null; fromFile: MusicName | null; ctx: string | null; voice: boolean } {
+    return {
+      unlocked: this.unlocked,
+      music: this.currentMusic,
+      fromFile: this.musicFromFile,
+      ctx: this.ctx?.state ?? null,
+      voice: this.musicVoice !== null,
+    };
   }
 }
 

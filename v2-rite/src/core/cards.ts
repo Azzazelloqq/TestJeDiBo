@@ -1,6 +1,6 @@
 import { destroyCreatures, endTurnAndAdvance, checkWinLoss, createCreature, resolveOrdinations, type Result } from './battle';
 import { blockedCells, cellKey, findPlacementSlot, getCreatureById } from './board';
-import { randInt, type BattleEvent, type BattleState, type CardId, type Cell, type Id } from './types';
+import { type BattleEvent, type BattleState, type CardId, type Cell, type Id } from './types';
 
 export interface CardDef {
   id: CardId;
@@ -18,7 +18,7 @@ export const CARDS: Record<CardId, CardDef> = {
   deathline: {
     id: 'deathline',
     name: 'Линия смерти',
-    effect: 'Столб света бьёт в случайный столбец: гибнут все существа обеих сторон в нём. Считается за ход.',
+    effect: 'Кликни столбец: гибнут все существа обеих сторон в нём. Считается за ход.',
     mode: 'instant',
     endsTurn: true,
     targeting: 'none',
@@ -26,7 +26,7 @@ export const CARDS: Record<CardId, CardDef> = {
   barrage: {
     id: 'barrage',
     name: 'Обстрел',
-    effect: '8 случайных клеток: все стоящие на них существа обеих сторон гибнут. Считается за ход.',
+    effect: 'Восемь клеток вспыхивают. Подтверди картой или отмени. Считается за ход.',
     mode: 'instant',
     endsTurn: true,
     targeting: 'none',
@@ -85,16 +85,16 @@ function requirePending(state: BattleState, card: CardId): void {
   if (state.karma.pendingCard !== card) throw new Error(`card ${card} is not pending`);
 }
 
-/** Линия смерти (9.2): 1d8 — столбец, гибнут все существа обеих сторон в нём. */
-export function playDeathline(state: BattleState, rng: () => number = Math.random): Result {
+/** Линия смерти: выбранный столбец. */
+export function playDeathline(state: BattleState, column: number, rng: () => number = Math.random): Result {
   requirePending(state, 'deathline');
-  const column = randInt(0, 7, rng);
+  const x = Math.max(0, Math.min(7, column | 0));
 
   const next = structuredClone(state);
   next.karma.pendingCard = null;
-  const events: BattleEvent[] = [{ t: 'cardPlayed', card: 'deathline', payload: { column } }];
+  const events: BattleEvent[] = [{ t: 'cardPlayed', card: 'deathline', payload: { column: x } }];
 
-  const victims = next.creatures.filter((c) => c.cell.x === column);
+  const victims = next.creatures.filter((c) => c.cell.x === x);
   destroyCreatures(next, victims, events);
 
   resolveOrdinations(next, events, rng);
@@ -103,16 +103,19 @@ export function playDeathline(state: BattleState, rng: () => number = Math.rando
   return { state: next, events };
 }
 
-/** Обстрел (9.2): 8 различных случайных клеток. Непроходимая клетка засчитывается, эффекта нет (17). */
-export function playBarrage(state: BattleState, rng: () => number = Math.random): Result {
-  requirePending(state, 'barrage');
+export function pickBarrageCells(rng: () => number = Math.random): Cell[] {
   const all: Cell[] = [];
   for (let x = 0; x < 8; x++) for (let y = 0; y < 8; y++) all.push({ x, y });
   for (let i = all.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
     [all[i], all[j]] = [all[j], all[i]];
   }
-  const cells = all.slice(0, 8);
+  return all.slice(0, 8);
+}
+
+/** Обстрел: заранее выбранные клетки. Непроходимая клетка засчитывается, эффекта нет (17). */
+export function playBarrage(state: BattleState, cells: Cell[], rng: () => number = Math.random): Result {
+  requirePending(state, 'barrage');
 
   const next = structuredClone(state);
   next.karma.pendingCard = null;

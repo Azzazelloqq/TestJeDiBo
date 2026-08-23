@@ -30,7 +30,8 @@ export interface BattleViewExtra {
   hoverCell: Cell | null;
   hoverPoint: { x: number; y: number } | null;
   nowMs: number;
-  targeting: 'spy' | 'resurrection' | null;
+  targeting: 'spy' | 'resurrection' | 'deathline' | 'barrage' | null;
+  barragePreview: Cell[] | null;
   animator: Animator;
   intents: Map<Id, Intent>;
   /** Сообщение о сброшенной карте, показывается 1.2 с (9.1). */
@@ -178,6 +179,8 @@ export function renderBattle(ctx: CanvasRenderingContext2D, state: BattleState, 
   if (!sceneActive) {
     drawSelection(ctx, extra);
     drawIntentTargets(ctx, extra, nowMs);
+    drawCardAim(ctx, extra, nowMs);
+    drawFeast(ctx, state, extra, nowMs);
   }
   drawCocoons(ctx, state, nowMs);
 
@@ -327,7 +330,7 @@ function drawFloor(ctx: CanvasRenderingContext2D, state: BattleState, nowMs: num
   }
 
   // Непроходимые клетки арены — провалы.
-  for (const cell of arena.blocked) {
+  for (const cell of [...arena.blocked, ...state.extraBlocked]) {
     const { x, y } = cellTopLeft(cell);
     ctx.fillStyle = '#000000';
     ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE);
@@ -532,6 +535,66 @@ function drawIntentTargets(ctx: CanvasRenderingContext2D, extra: BattleViewExtra
       ctx.lineWidth = 1.5;
       ctx.strokeRect(x + 3, y + 3, CELL_SIZE - 6, CELL_SIZE - 6);
     }
+    ctx.restore();
+  }
+}
+
+function drawCardAim(ctx: CanvasRenderingContext2D, extra: BattleViewExtra, nowMs: number): void {
+  if (extra.targeting === 'deathline') {
+    const col = extra.hoverCell?.x;
+    if (col === undefined) return;
+    const { x } = cellTopLeft({ x: col, y: 0 });
+    const pulse = 0.35 + 0.35 * (0.5 + 0.5 * Math.sin(nowMs / 180));
+    ctx.save();
+    ctx.fillStyle = `rgba(140,28,19,${pulse})`;
+    ctx.fillRect(x, BOARD_ORIGIN.y, CELL_SIZE, BOARD_PX);
+    ctx.restore();
+    return;
+  }
+  if (extra.targeting === 'barrage' && extra.barragePreview) {
+    const pulse = 0.4 + 0.4 * Math.abs(Math.sin(nowMs / 140));
+    for (const cell of extra.barragePreview) {
+      const { x, y } = cellTopLeft(cell);
+      ctx.save();
+      ctx.strokeStyle = PALETTE.blood;
+      ctx.globalAlpha = pulse;
+      ctx.lineWidth = 3;
+      ctx.shadowColor = PALETTE.candle;
+      ctx.shadowBlur = 12;
+      ctx.strokeRect(x + 2, y + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+      ctx.restore();
+    }
+  }
+}
+
+function drawFeast(ctx: CanvasRenderingContext2D, state: BattleState, extra: BattleViewExtra, nowMs: number): void {
+  if (!state.feast) return;
+  const pulse = 0.55 + 0.45 * Math.sin(nowMs / 120);
+  for (const cell of extra.legalAttacks) {
+    const { x, y } = cellTopLeft(cell);
+    ctx.save();
+    ctx.strokeStyle = PALETTE.candle;
+    ctx.shadowColor = PALETTE.blood;
+    ctx.shadowBlur = 18 + 10 * pulse;
+    ctx.lineWidth = 4;
+    ctx.globalAlpha = 0.55 + 0.45 * pulse;
+    ctx.strokeRect(x + 2, y + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+    ctx.fillStyle = `rgba(217,164,65,${0.12 + 0.1 * pulse})`;
+    ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE);
+    ctx.restore();
+  }
+  const hunter = state.creatures.find((c) => c.id === state.feast?.creatureId);
+  if (hunter) {
+    const p = cellCenter(hunter.cell);
+    ctx.save();
+    ctx.strokeStyle = PALETTE.candle;
+    ctx.shadowColor = PALETTE.candle;
+    ctx.shadowBlur = 22;
+    ctx.lineWidth = 3;
+    ctx.globalAlpha = pulse;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 28 + 4 * pulse, 0, Math.PI * 2);
+    ctx.stroke();
     ctx.restore();
   }
 }
@@ -863,7 +926,15 @@ function drawHud(ctx: CanvasRenderingContext2D, state: BattleState, extra: Battl
     ctx.font = `14px ${SANS}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(extra.targeting === 'spy' ? 'Выбери тварь' : 'Выбери существо на кладбище', CANVAS_W / 2, 70);
+    const aim =
+      extra.targeting === 'spy'
+        ? 'Выбери тварь'
+        : extra.targeting === 'resurrection'
+          ? 'Выбери существо на кладбище'
+          : extra.targeting === 'deathline'
+            ? 'Кликни столбец Линии смерти'
+            : 'Нажми карту ещё раз — подтвердить обстрел';
+    ctx.fillText(aim, CANVAS_W / 2, 70);
   }
   const combo = extra.animator.getComboFlash(extra.nowMs);
   if (combo) {
@@ -887,6 +958,11 @@ function drawTurnBanner(ctx: CanvasRenderingContext2D, state: BattleState): void
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(yours ? smallCaps('Твой ход — кликни фигуру') : smallCaps('Ход противника'), CANVAS_W / 2, 52);
+  if (state.feast) {
+    ctx.fillStyle = PALETTE.candle;
+    ctx.font = `22px ${SERIF}`;
+    ctx.fillText(smallCaps('Пир — бей ещё'), CANVAS_W / 2, 84);
+  }
 }
 
 function drawApTrack(ctx: CanvasRenderingContext2D, state: BattleState): void {
@@ -1037,7 +1113,10 @@ function inspectAt(
     return { title: 'Кокон', body: `Не пройти и не ударить. Спадёт через ${left || 1} ход.` };
   }
 
-  if (ARENAS[state.arena].blocked.some((c) => cellEquals(c, cell))) {
+  if (
+    ARENAS[state.arena].blocked.some((c) => cellEquals(c, cell)) ||
+    state.extraBlocked.some((c) => cellEquals(c, cell))
+  ) {
     return { title: 'Провал', body: 'Через него нельзя ни пройти, ни ударить.' };
   }
 
